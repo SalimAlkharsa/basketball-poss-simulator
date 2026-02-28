@@ -7,7 +7,7 @@ Team data model with player roster management.
 from dataclasses import dataclass, field
 from typing import Iterator
 
-from models.player import Player, Role
+from models.player import Player, Position, Role
 
 
 @dataclass
@@ -67,6 +67,33 @@ class Team:
             if player.name == name:
                 return player
         raise ValueError(f"Player {name} not found on team {self.name}")
+
+    def place_at_defaults(self) -> None:
+        """Place all 5 players at default starting positions based on role + position.
+
+        OFFENSE uses 5-out wing spacing; DEFENSE mirrors man-to-man.
+        """
+        offense_defaults = {
+            Position.PG: (25.0, 23.0),
+            Position.SG: (38.0, 23.0),
+            Position.SF: (44.0, 10.0),
+            Position.PF: (12.0, 23.0),
+            Position.C:  (6.0,  10.0),
+        }
+        defense_defaults = {
+            Position.PG: (25.0, 22.0),
+            Position.SG: (37.0, 22.0),
+            Position.SF: (43.0, 11.0),
+            Position.PF: (13.0, 22.0),
+            Position.C:  (7.0,  11.0),
+        }
+        for player in self.players:
+            if player.role == Role.OFFENSE:
+                coords = offense_defaults.get(player.position)
+            else:
+                coords = defense_defaults.get(player.position)
+            if coords:
+                player.place(*coords)
 
     def __iter__(self) -> Iterator[Player]:
         """Iterate over players."""

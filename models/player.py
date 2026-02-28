@@ -145,9 +145,21 @@ class Player:
         return self.x is not None and self.y is not None
 
     def place(self, x: float, y: float) -> None:
-        """Place player at (x, y) on court."""
+        """Place player at (x, y) on court. Raises ValueError if out of bounds."""
+        if not (0.0 <= x <= 50.0 and 0.0 <= y <= 47.0):
+            raise ValueError(
+                f"Court coordinates must be within [0,50]×[0,47], got ({x}, {y})"
+            )
         self.x = x
         self.y = y
+
+    @property
+    def zone(self):
+        """Return the CourtZone for the player's current position, or None if off-court."""
+        if not self.is_on_court():
+            return None
+        from models.court import get_zone
+        return get_zone(self.x, self.y)
 
     def clear_location(self) -> None:
         """Remove player's court location."""

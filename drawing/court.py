@@ -16,7 +16,7 @@ NBA half-court dimensions (all values in feet):
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.patches import Arc, Circle
+from matplotlib.patches import Arc, Circle, Wedge
 
 # ── Court constants ────────────────────────────────────────────────────────────
 
@@ -123,21 +123,127 @@ def _draw_halfcourt_line(ax: plt.Axes) -> None:
             color=LINE_COLOR, linewidth=LINE_WIDTH)
 
 
+# ── Debug zone overlay ─────────────────────────────────────────────────────────
+
+def _draw_zone_overlays(ax: plt.Axes) -> None:
+    """Draw semi-transparent colored patches for each court zone."""
+    # Precompute geometry shared with models/court.py
+    corner_y = BASKET_Y + np.sqrt(THREE_RADIUS**2 - (BASKET_X - CORNER_X)**2)
+    top_key_x_left = 17.0
+    top_key_x_right = 33.0
+
+    # Sweep angles for the 3-point arc
+    theta_left  = np.degrees(np.arctan2(corner_y - BASKET_Y, CORNER_X - BASKET_X))
+    theta_right = np.degrees(np.arctan2(corner_y - BASKET_Y,
+                                        (COURT_W - CORNER_X) - BASKET_X))
+
+    def _filled_arc_patch(cx, cy, r, t1, t2, color, alpha):
+        """Return a filled Wedge (pie slice) patch."""
+        return Wedge((cx, cy), r, t1, t2, facecolor=color, alpha=alpha, edgecolor="none")
+
+    # Restricted area (filled circle up to RA_RADIUS, lower half only shown)
+    ax.add_patch(Wedge((BASKET_X, BASKET_Y), RA_RADIUS, 0, 360,
+                       facecolor="#FF4444", alpha=0.4, edgecolor="none"))
+
+    # Paint (rectangle minus restricted area — approximate with rectangle, RA shown on top)
+    ax.add_patch(mpatches.Rectangle(
+        (PAINT_X, 0), PAINT_W, PAINT_H,
+        facecolor="#FF8C00", alpha=0.3, edgecolor="none", zorder=1,
+    ))
+
+    # Corner 3 left: x ∈ [0,3], y ∈ [0, corner_y]
+    ax.add_patch(mpatches.Rectangle(
+        (0, 0), CORNER_X, corner_y,
+        facecolor="#4169E1", alpha=0.3, edgecolor="none",
+    ))
+    # Corner 3 right: x ∈ [47,50], y ∈ [0, corner_y]
+    ax.add_patch(mpatches.Rectangle(
+        (COURT_W - CORNER_X, 0), CORNER_X, corner_y,
+        facecolor="#4169E1", alpha=0.3, edgecolor="none",
+    ))
+
+    # For above-break zones, use a rasterized pixel approach via imshow
+    # Build a grid and classify each pixel
+    xs = np.linspace(0, COURT_W, 200)
+    ys = np.linspace(0, COURT_D, 188)
+    XX, YY = np.meshgrid(xs, ys)
+    dist = np.sqrt((XX - BASKET_X)**2 + (YY - BASKET_Y)**2)
+    outside_arc = dist > THREE_RADIUS
+    in_corner_left  = (XX <= CORNER_X) & (YY <= corner_y)
+    in_corner_right = (XX >= COURT_W - CORNER_X) & (YY <= corner_y)
+    above_break = outside_arc & ~in_corner_left & ~in_corner_right & (YY <= COURT_D)
+
+    # Wing left (above-break, x < top_key_x_left)
+    wing_left  = above_break & (XX < top_key_x_left)
+    # Wing right (above-break, x > top_key_x_right)
+    wing_right = above_break & (XX > top_key_x_right)
+    # Top of key (above-break, top_key_x_left ≤ x ≤ top_key_x_right)
+    top_key    = above_break & (XX >= top_key_x_left) & (XX <= top_key_x_right)
+
+    # Mid-range: inside arc, not paint, not restricted, not corner, y ≤ COURT_D
+    in_ra   = dist <= RA_RADIUS
+    in_paint = (XX >= PAINT_X) & (XX <= PAINT_X + PAINT_W) & (YY <= PAINT_H)
+    mid_range = (~outside_arc) & (~in_ra) & (~in_paint) & (YY <= COURT_D)
+
+    # Build RGBA image
+    rgba = np.zeros((*XX.shape, 4))
+    def _apply(mask, color_hex, alpha):
+        r = int(color_hex[1:3], 16) / 255
+        g = int(color_hex[3:5], 16) / 255
+        b = int(color_hex[5:7], 16) / 255
+        rgba[mask] = [r, g, b, alpha]
+
+    _apply(mid_range,  "#FFD700", 0.3)
+    _apply(wing_left,  "#9B59B6", 0.3)
+    _apply(wing_right, "#1ABC9C", 0.3)
+    _apply(top_key,    "#32CD32", 0.3)
+
+    ax.imshow(rgba, extent=[0, COURT_W, 0, COURT_D], origin="lower",
+              aspect="auto", zorder=2, interpolation="nearest")
+
+
+# ── Player rendering ───────────────────────────────────────────────────────────
+
+def _draw_players(ax: plt.Axes, players: list) -> None:
+    """Draw colored dots + name labels for each player with a court location."""
+    for player in players:
+        if not player.is_on_court():
+            continue
+        color = "#3399FF" if player.team == "Blue Team" else "#FF4444"
+        ax.plot(player.x, player.y, "o", color=color, markersize=8,
+                markeredgecolor="white", markeredgewidth=0.8, zorder=10)
+        ax.text(player.x, player.y + 1.2, player.name.split()[-1],
+                color="white", fontsize=5, ha="center", va="bottom",
+                fontweight="bold", zorder=11)
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def draw_half_court() -> plt.Figure:
-    """Return a matplotlib Figure of an NBA half-court."""
+def draw_half_court(debug: bool = False, players: list = None) -> plt.Figure:
+    """Return a matplotlib Figure of an NBA half-court.
+
+    Args:
+        debug: If True, draw semi-transparent zone overlays.
+        players: Optional list of Player objects to render as dots.
+    """
     fig, ax = plt.subplots(figsize=(5, 4.7))
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(COURT_COLOR)
 
     _draw_boundary(ax)
     _draw_paint(ax)
+
+    if debug:
+        _draw_zone_overlays(ax)
+
     _draw_ft_line_and_circle(ax)
     _draw_three_point_line(ax)
     _draw_restricted_area(ax)
     _draw_basket(ax)
     _draw_halfcourt_line(ax)
+
+    if players:
+        _draw_players(ax, players)
 
     ax.set_xlim(-1, COURT_W + 1)
     ax.set_ylim(-1, COURT_D + 2)
