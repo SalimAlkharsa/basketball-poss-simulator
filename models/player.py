@@ -133,6 +133,10 @@ class Player:
     x: Optional[float] = None
     y: Optional[float] = None
 
+    # Use object identity for hashing so Player instances can be dict keys.
+    # Equality comparison (==) still uses field values via the generated __eq__.
+    __hash__ = object.__hash__
+
     def __post_init__(self) -> None:
         """Coerce position and role from strings if needed."""
         if isinstance(self.position, str):

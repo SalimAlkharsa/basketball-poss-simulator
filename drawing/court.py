@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Arc, Circle, Wedge
 
+from simulation.utils import CONTEST_RADIUS
+
 # ── Court constants ────────────────────────────────────────────────────────────
 
 COURT_W      = 50.0    # width (ft)
@@ -203,27 +205,62 @@ def _draw_zone_overlays(ax: plt.Axes) -> None:
 
 # ── Player rendering ───────────────────────────────────────────────────────────
 
-def _draw_players(ax: plt.Axes, players: list) -> None:
-    """Draw colored dots + name labels for each player with a court location."""
+def _draw_defender_radii(ax: plt.Axes, players: list) -> None:
+    """Draw a dashed contest-radius circle around each on-court defender."""
+    for player in players:
+        if not player.is_on_court():
+            continue
+        from models.player import Role
+        if player.role != Role.DEFENSE:
+            continue
+        circle = Circle(
+            (player.x, player.y),
+            CONTEST_RADIUS,
+            fill=False,
+            linestyle="--",
+            edgecolor="#FF4444",
+            linewidth=0.8,
+            alpha=0.6,
+            zorder=6,
+        )
+        ax.add_patch(circle)
+
+
+def _draw_players(ax: plt.Axes, players: list, ball_handler_name: str = None) -> None:
+    """Draw colored dots + name labels for each player with a court location.
+
+    The ball handler is rendered as a larger star marker in gold to make
+    possession obvious at a glance.
+    """
     for player in players:
         if not player.is_on_court():
             continue
         color = "#3399FF" if player.team == "Blue Team" else "#FF4444"
-        ax.plot(player.x, player.y, "o", color=color, markersize=8,
-                markeredgecolor="white", markeredgewidth=0.8, zorder=10)
+        is_ball_handler = (ball_handler_name is not None and player.name == ball_handler_name)
+        if is_ball_handler:
+            ax.plot(player.x, player.y, "*", color="#FFD700", markersize=14,
+                    markeredgecolor="white", markeredgewidth=0.8, zorder=12)
+        else:
+            ax.plot(player.x, player.y, "o", color=color, markersize=8,
+                    markeredgecolor="white", markeredgewidth=0.8, zorder=10)
         ax.text(player.x, player.y + 1.2, player.name.split()[-1],
                 color="white", fontsize=5, ha="center", va="bottom",
-                fontweight="bold", zorder=11)
+                fontweight="bold", zorder=13)
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def draw_half_court(debug: bool = False, players: list = None) -> plt.Figure:
+def draw_half_court(
+    debug: bool = False,
+    players: list = None,
+    ball_handler_name: str = None,
+) -> plt.Figure:
     """Return a matplotlib Figure of an NBA half-court.
 
     Args:
-        debug: If True, draw semi-transparent zone overlays.
+        debug: Draw semi-transparent zone overlays and defender contest radii.
         players: Optional list of Player objects to render as dots.
+        ball_handler_name: Name of the current ball handler; rendered as a star.
     """
     fig, ax = plt.subplots(figsize=(5, 4.7))
     fig.patch.set_facecolor(BG_COLOR)
@@ -242,7 +279,9 @@ def draw_half_court(debug: bool = False, players: list = None) -> plt.Figure:
     _draw_halfcourt_line(ax)
 
     if players:
-        _draw_players(ax, players)
+        if debug:
+            _draw_defender_radii(ax, players)
+        _draw_players(ax, players, ball_handler_name=ball_handler_name)
 
     ax.set_xlim(-1, COURT_W + 1)
     ax.set_ylim(-1, COURT_D + 2)
