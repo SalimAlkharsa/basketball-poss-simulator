@@ -1,0 +1,11 @@
+name,team,position,role,off__three_pt_shooting,off__mid_range_shooting,off__drive_effectiveness,off__passing,off__layup,off__strength,def__outside_defense,def__speed,def__deflections,def__rim_protection,tend__three,tend__mid,tend__drive,tend__pass,tend__layup
+Player 1,Blue Team,PG,OFFENSE,0.92,0.78,0.68,0.89,0.85,0.55,0.72,0.82,0.80,0.40,0.45,0.15,0.10,0.20,0.10
+Player 2,Blue Team,SG,OFFENSE,0.88,0.75,0.55,0.72,0.82,0.60,0.75,0.76,0.70,0.35,0.40,0.20,0.08,0.15,0.17
+Player 3,Blue Team,SF,OFFENSE,0.68,0.60,0.75,0.68,0.78,0.72,0.80,0.85,0.75,0.45,0.15,0.10,0.35,0.15,0.25
+Player 4,Blue Team,PF,OFFENSE,0.45,0.50,0.60,0.85,0.70,0.78,0.78,0.80,0.82,0.70,0.10,0.10,0.20,0.50,0.10
+Player 5,Blue Team,C,OFFENSE,0.35,0.42,0.55,0.62,0.80,0.85,0.72,0.70,0.75,0.80,0.05,0.05,0.15,0.20,0.55
+Player 6,Red Team,PG,DEFENSE,0.85,0.80,0.70,0.88,0.82,0.65,0.68,0.75,0.78,0.35,0.40,0.20,0.12,0.18,0.10
+Player 7,Red Team,SG,DEFENSE,0.75,0.78,0.68,0.80,0.80,0.68,0.76,0.78,0.75,0.40,0.22,0.25,0.20,0.18,0.15
+Player 8,Red Team,SF,DEFENSE,0.62,0.50,0.88,0.75,0.85,0.92,0.82,0.88,0.85,0.85,0.10,0.08,0.50,0.15,0.17
+Player 9,Red Team,PF,DEFENSE,0.55,0.62,0.60,0.70,0.75,0.80,0.75,0.72,0.78,0.88,0.08,0.10,0.15,0.20,0.47
+Player 10,Red Team,C,DEFENSE,0.52,0.58,0.65,0.68,0.78,0.82,0.72,0.75,0.80,0.85,0.10,0.12,0.20,0.15,0.43
