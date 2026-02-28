@@ -151,17 +151,6 @@ def _draw_zone_overlays(ax: plt.Axes) -> None:
         facecolor="#FF8C00", alpha=0.3, edgecolor="none", zorder=1,
     ))
 
-    # Corner 3 left: x ∈ [0,3], y ∈ [0, corner_y]
-    ax.add_patch(mpatches.Rectangle(
-        (0, 0), CORNER_X, corner_y,
-        facecolor="#4169E1", alpha=0.3, edgecolor="none",
-    ))
-    # Corner 3 right: x ∈ [47,50], y ∈ [0, corner_y]
-    ax.add_patch(mpatches.Rectangle(
-        (COURT_W - CORNER_X, 0), CORNER_X, corner_y,
-        facecolor="#4169E1", alpha=0.3, edgecolor="none",
-    ))
-
     # For above-break zones, use a rasterized pixel approach via imshow
     # Build a grid and classify each pixel
     xs = np.linspace(0, COURT_W, 200)
@@ -181,9 +170,9 @@ def _draw_zone_overlays(ax: plt.Axes) -> None:
     top_key    = above_break & (XX >= top_key_x_left) & (XX <= top_key_x_right)
 
     # Mid-range: inside arc, not paint, not restricted, not corner, y ≤ COURT_D
-    in_ra   = dist <= RA_RADIUS
+    in_ra    = dist <= RA_RADIUS
     in_paint = (XX >= PAINT_X) & (XX <= PAINT_X + PAINT_W) & (YY <= PAINT_H)
-    mid_range = (~outside_arc) & (~in_ra) & (~in_paint) & (YY <= COURT_D)
+    mid_range = (~outside_arc) & (~in_ra) & (~in_paint) & (~in_corner_left) & (~in_corner_right) & (YY <= COURT_D)
 
     # Build RGBA image
     rgba = np.zeros((*XX.shape, 4))
@@ -200,6 +189,16 @@ def _draw_zone_overlays(ax: plt.Axes) -> None:
 
     ax.imshow(rgba, extent=[0, COURT_W, 0, COURT_D], origin="lower",
               aspect="auto", zorder=2, interpolation="nearest")
+
+    # Corner 3 patches drawn after imshow so they render on top
+    ax.add_patch(mpatches.Rectangle(
+        (0, 0), CORNER_X, corner_y,
+        facecolor="#4169E1", alpha=0.3, edgecolor="none", zorder=3,
+    ))
+    ax.add_patch(mpatches.Rectangle(
+        (COURT_W - CORNER_X, 0), CORNER_X, corner_y,
+        facecolor="#4169E1", alpha=0.3, edgecolor="none", zorder=3,
+    ))
 
 
 # ── Player rendering ───────────────────────────────────────────────────────────
