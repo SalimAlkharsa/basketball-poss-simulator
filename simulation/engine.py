@@ -40,7 +40,7 @@ _DRIVE_CANDIDATES = [
     ("rim",            2.4,             "LAYUP", CourtZone.RESTRICTED_AREA),
     ("paint",          8.5,             "MID",   CourtZone.PAINT),
     ("mid-range",     15.0,             "MID",   CourtZone.MID_RANGE),
-    ("three-pt line", THREE_PT_RADIUS,  "3PT",   None),
+    ("three-pt line", THREE_PT_RADIUS + 0.5, "3PT", None),
 ]
 
 _THREE_PT_ZONES = frozenset({
@@ -199,6 +199,31 @@ def _effective_weights(ball_handler: Player, defender: Optional[Player]) -> list
     if defender is None or not defender.is_on_court() or zone is None:
         return raw
 
+    # ── Step 1: mask invalid actions for the current zone ──────────────────────
+    # Build a validity mask first so the raw proportions are preserved when we
+    # renormalise.  Drive is always valid — it moves the player to a new zone.
+    valid = [1.0, 1.0, 1.0, 1.0, 1.0]  # [3PT, MID, DRIVE, PASS, LAYUP]
+    if zone in _THREE_PT_ZONES:
+        valid[1] = 0.0   # no MID
+        valid[4] = 0.0   # no LAYUP
+    elif zone == CourtZone.RESTRICTED_AREA:
+        valid[0] = 0.0   # no 3PT
+        valid[1] = 0.0   # no MID
+    elif zone in (CourtZone.PAINT, CourtZone.MID_RANGE):
+        valid[0] = 0.0   # no 3PT
+        valid[4] = 0.0   # no LAYUP
+
+    # Redistribute raw tendency mass from invalid actions proportionally to
+    # valid ones, preserving the relative intent of the CSV tendencies.
+    masked = [r * v for r, v in zip(raw, valid)]
+    masked_total = sum(masked)
+    if masked_total < 1e-9:
+        # Fallback: everything is valid (shouldn't happen with well-formed data).
+        masked = raw[:]
+        masked_total = sum(masked)
+    rebased = [m / masked_total for m in masked]
+
+    # ── Step 2: scale each valid action by expected success ────────────────────
     d = player_dist(ball_handler, defender)
 
     p_3pt = (
@@ -210,15 +235,11 @@ def _effective_weights(ball_handler: Player, defender: Optional[Player]) -> list
         ball_handler.offense.mid_range_shooting
         * contest_factor(d, defender.defense.outside_defense, CONTEST_RADIUS)
     )
-    # Drive weight: use the best reachable target's EV (same logic _best_drive_target uses,
-    # but evaluated against the matched defender as a quick proxy — full selection happens
-    # in step_possession once DRIVE is actually picked).
     dx = ball_handler.x - _BASKET_X
     dy = ball_handler.y - _BASKET_Y
     current_dist = math.sqrt(dx * dx + dy * dy)
     p_drive = 0.0
     for label, target_dist, shot_type, _lz_hint in _DRIVE_CANDIDATES:
-        # Compute landing zone; skip if same as current zone.
         lx_tmp, ly_tmp = _drive_landing(ball_handler, target_dist) if current_dist > 0.01 else (_BASKET_X, _BASKET_Y)
         landing_zone_tmp = _lz_hint if _lz_hint is not None else get_zone(lx_tmp, ly_tmp)
         if landing_zone_tmp == zone:
@@ -246,32 +267,16 @@ def _effective_weights(ball_handler: Player, defender: Optional[Player]) -> list
     )
 
     weights = [
-        raw[0] * p_3pt,    # 3PT
-        raw[1] * p_mid,    # MID
-        raw[2] * p_drive,  # DRIVE
-        raw[3],            # PASS — unmodified
-        raw[4] * p_layup,  # LAYUP
+        rebased[0] * p_3pt,    # 3PT
+        rebased[1] * p_mid,    # MID
+        rebased[2] * p_drive,  # DRIVE
+        rebased[3],            # PASS — unmodified
+        rebased[4] * p_layup,  # LAYUP
     ]
-
-    # Zone-based zeroing: remove shot types that make no sense from the current location.
-    # Drive is always kept as a valid option (it moves the player to a new zone).
-    if zone in _THREE_PT_ZONES:
-        # In 3PT land: 3PT shot, drive, or pass only.
-        weights[1] = 0.0   # no MID
-        weights[4] = 0.0   # no LAYUP
-    elif zone == CourtZone.RESTRICTED_AREA:
-        # At the rim: layup, drive (out), or pass only.
-        weights[0] = 0.0   # no 3PT
-        weights[1] = 0.0   # no MID
-    elif zone in (CourtZone.PAINT, CourtZone.MID_RANGE):
-        # Inside the arc but not at the rim: mid-range, drive, or pass.
-        # 3PT and layup zeroed — player must drive out to shoot a 3.
-        weights[0] = 0.0   # no 3PT
-        weights[4] = 0.0   # no LAYUP
 
     total = sum(weights)
     if total == 0.0:
-        return raw
+        return rebased
     return [w / total for w in weights]
 
 
@@ -488,3 +493,8 @@ def new_possession(blue_team: Team, red_team: Team) -> PossessionState:
     )
     matchups = build_matchups(blue_team, red_team)
     return PossessionState(ball_handler=ball_handler, matchups=matchups)
+
+
+def effective_weights(ball_handler: Player, defender: Optional[Player]) -> list[float]:
+    """Public wrapper around _effective_weights for use in the UI."""
+    return _effective_weights(ball_handler, defender)

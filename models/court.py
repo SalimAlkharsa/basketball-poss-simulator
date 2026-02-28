@@ -45,7 +45,7 @@ def _dist_from_basket(x: float, y: float) -> float:
 
 
 def _outside_three_arc(x: float, y: float) -> bool:
-    return _dist_from_basket(x, y) > THREE_PT_RADIUS
+    return _dist_from_basket(x, y) >= THREE_PT_RADIUS
 
 
 def get_zone(x: float, y: float) -> CourtZone:

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from drawing.court import draw_half_court
 from data.loader import load_teams
-from simulation.engine import new_possession, step_possession
+from simulation.engine import new_possession, step_possession, effective_weights
 from simulation.utils import player_dist
 
 st.set_page_config(
@@ -304,9 +304,10 @@ with row2_right:
     cols2[1].metric("Pass", f"{off.passing:.0%}")
     cols2[2].metric("Strength", f"{off.strength:.0%}")
 
-    st.markdown("**Tendencies**")
+    st.markdown("**Tendencies** (raw → effective from current zone)")
     labels = ["3PT", "MID", "DRV", "PASS", "LAY"]
-    weights = tend.as_weights()
+    raw_weights = tend.as_weights()
+    eff_weights = effective_weights(bh, possession.matchups.get(bh))
     tcols = st.columns(5)
-    for col, lbl, w in zip(tcols, labels, weights):
-        col.metric(lbl, f"{w:.0%}")
+    for col, lbl, rw, ew in zip(tcols, labels, raw_weights, eff_weights):
+        col.metric(lbl, f"{ew:.0%}", delta=f"{ew - rw:+.0%}" if abs(ew - rw) > 0.005 else None)
