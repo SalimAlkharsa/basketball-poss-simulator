@@ -18,7 +18,7 @@ A Streamlit-based basketball possession simulator that renders an NBA half-court
 - ✅ Man-to-man defensive repositioning (speed-gated, per-step)
 - ✅ Basketball graphic rendered on court, animated on every step
 - ✅ Streamlit UI: Step / New possession controls, action log, player attributes
-- 🔄 Next: Advanced offensive actions (cuts, off-ball movement, screens)
+- ✅ Off-ball actions complete (`simulation/off_ball.py`): cuts, off-ball screens, on-ball screens (P&R / P&P)
 
 ## Architecture
 
@@ -37,6 +37,7 @@ A Streamlit-based basketball possession simulator that renders an NBA half-court
 │   ├── __init__.py
 │   ├── utils.py                    # Geometry helpers + proximity constants
 │   ├── actions.py                  # Probabilistic resolvers: shot, drive, pass
+│   ├── off_ball.py                 # Off-ball resolvers: cut, off-ball screen, on-ball screen
 │   └── engine.py                   # PossessionState, step_possession, man-to-man defense
 ├── data/
 │   ├── __init__.py
@@ -256,8 +257,7 @@ Toggled via sidebar checkbox in `app.py`. Zone per player shown in sidebar.
 
 ## Next Steps
 
-1. Off-ball player movement (cuts, relocations after pass)
-2. Screen and roll action type
-3. Auto-run mode (simulate full possession without manual stepping)
-4. Score tracking across multiple possessions
-5. Defensive scheme alternatives (zone, help defence)
+1. Auto-run mode (simulate full possession without manual stepping)
+2. Score tracking across multiple possessions
+3. Defensive scheme alternatives (zone, help defence)
+4. Help-side defender rotation responses to cuts (second defender switching)

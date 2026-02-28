@@ -23,6 +23,14 @@ from simulation.utils import (
     DEFENDER_SNAP_OFFSET,
 )
 from simulation.actions import resolve_shot, resolve_drive, resolve_pass
+from simulation.off_ball import (
+    OffBallTendencies,
+    TENDENCIES as _DEFAULT_TENDENCIES,
+    off_ball_decision_weights,
+    resolve_cut,
+    resolve_off_ball_screen,
+    resolve_on_ball_screen,
+)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -85,6 +93,19 @@ class PossessionState:
     #   type PASS  → from_x, from_y, to_x, to_y, success: bool
     #   type DRIVE → from_x, from_y, to_x, to_y
     #   type SHOT  → from_x, from_y, shot_type: str, made: bool
+    screened_defenders: set = field(default_factory=set)
+    # Names of defenders pinned by a screen this step.  Cleared and
+    # repopulated by _step_off_ball_actions at the start of each step.
+    # A screened defender is treated as absent when the ball handler
+    # selects and resolves their on-ball action.
+    off_ball_annotations: list = field(default_factory=list)
+    # Per-step CUT / SCREEN animation dicts for app.py to play before the
+    # ball-handler action animation.
+    tendencies: OffBallTendencies = field(default_factory=lambda: _DEFAULT_TENDENCIES)
+    # Active off-ball tendency model.  Defaults to the module-level
+    # TENDENCIES singleton so global changes are visible automatically.
+    # Assign a fresh OffBallTendencies() to override for a single possession
+    # without affecting other possessions.
 
 
 # ── Drive target selection ─────────────────────────────────────────────────────
@@ -309,6 +330,146 @@ def update_defense(matchups: Matchups) -> None:
         defender.place(new_x, new_y)
 
 
+# ── Off-ball step ─────────────────────────────────────────────────────────────
+
+def _step_off_ball_actions(
+    state: PossessionState,
+    offense_players: list,
+    all_defenders: list,
+) -> None:
+    """Process off-ball decisions for every non-ball-handler offensive player.
+
+    Called once per step *before* the ball handler picks their action.
+
+    Mutates:
+        * Player positions (cuts move the cutter; screens move the screener).
+        * state.screened_defenders  — cleared then repopulated each step.
+        * state.off_ball_annotations — overwritten with this step's events.
+        * state.action_log          — off-ball descriptions appended.
+    """
+    state.screened_defenders.clear()
+    state.off_ball_annotations = []
+
+    bh          = state.ball_handler
+    bh_defender = state.matchups.get(bh)
+
+    for player in offense_players:
+        if player is bh or not player.is_on_court():
+            continue
+
+        w_cut, w_screen, w_stay = off_ball_decision_weights(player, state.tendencies)
+        action = random.choices(
+            ["CUT", "SCREEN", "STAY"],
+            weights=[w_cut, w_screen, w_stay],
+        )[0]
+
+        if action == "CUT":
+            cutter_defender = state.matchups.get(player)
+            result = resolve_cut(player, cutter_defender, all_defenders)
+
+            state.action_log.append(
+                {"text": result.description, "details": [], "style": "offball"}
+            )
+            state.off_ball_annotations.append({
+                "type":        "CUT",
+                "player_name": result.player_name,
+                "from_x":      result.from_x,
+                "from_y":      result.from_y,
+                "to_x":        result.to_x,
+                "to_y":        result.to_y,
+                "success":     result.success,
+            })
+
+            # Move the cutter to the new spot unconditionally
+            player.place(result.to_x, result.to_y)
+
+            # Defender response: chase tight if the cut was covered
+            if cutter_defender and cutter_defender.is_on_court():
+                if not result.success:
+                    ddx   = cutter_defender.x - result.to_x
+                    ddy   = cutter_defender.y - result.to_y
+                    ddist = math.sqrt(ddx * ddx + ddy * ddy)
+                    snap  = max(0.0, CONTEST_RADIUS - DEFENDER_SNAP_OFFSET)
+                    if ddist > snap + 0.1 and ddist > 0.01:
+                        ratio = snap / ddist
+                        cutter_defender.place(
+                            min(50.0, max(0.0, result.to_x + ddx * ratio)),
+                            min(47.0, max(0.0, result.to_y + ddy * ratio)),
+                        )
+
+        elif action == "SCREEN":
+            dist_to_bh  = player_dist(player, bh)
+            bh_def_dist = (
+                player_dist(bh, bh_defender)
+                if bh_defender and bh_defender.is_on_court()
+                else 99.0
+            )
+            # Prefer on-ball screen when screener is close to BH and the BH's
+            # defender is tight (within 2.5× contest radius)
+            prefer_on_ball = (dist_to_bh < 15.0 and bh_def_dist < CONTEST_RADIUS * 2.5)
+
+            if prefer_on_ball:
+                result = resolve_on_ball_screen(player, bh, bh_defender, all_defenders, state.tendencies)
+                if result.success and bh_defender is not None:
+                    state.screened_defenders.add(bh_defender.name)
+
+                state.action_log.append(
+                    {"text": result.description, "details": [], "style": "offball"}
+                )
+                player.place(result.final_x, result.final_y)
+                state.off_ball_annotations.append({
+                    "type":            "SCREEN",
+                    "screener_name":   result.screener_name,
+                    "screener_from_x": result.screener_from_x,
+                    "screener_from_y": result.screener_from_y,
+                    "target_name":     result.ball_handler_name,
+                    "screen_x":        result.screen_x,
+                    "screen_y":        result.screen_y,
+                    "final_x":         result.final_x,
+                    "final_y":         result.final_y,
+                    "roll_or_pop":     result.roll_or_pop,
+                    "success":         result.success,
+                })
+
+            else:
+                # Off-ball screen: free up the most tightly covered teammate
+                off_ball_mates = [
+                    p for p in offense_players
+                    if p is not bh and p is not player and p.is_on_court()
+                ]
+                if not off_ball_mates:
+                    continue
+
+                def _coverage(t):
+                    td = state.matchups.get(t)
+                    return player_dist(t, td) if (td and td.is_on_court()) else 99.0
+
+                target          = min(off_ball_mates, key=_coverage)
+                target_defender = state.matchups.get(target)
+                result = resolve_off_ball_screen(player, target, target_defender)
+
+                if result.success and target_defender is not None:
+                    state.screened_defenders.add(target_defender.name)
+
+                state.action_log.append(
+                    {"text": result.description, "details": [], "style": "offball"}
+                )
+                player.place(result.screen_x, result.screen_y)
+                state.off_ball_annotations.append({
+                    "type":            "SCREEN",
+                    "screener_name":   result.screener_name,
+                    "screener_from_x": result.screener_from_x,
+                    "screener_from_y": result.screener_from_y,
+                    "target_name":     result.target_name,
+                    "screen_x":        result.screen_x,
+                    "screen_y":        result.screen_y,
+                    "final_x":         result.screen_x,
+                    "final_y":         result.screen_y,
+                    "roll_or_pop":     None,
+                    "success":         result.success,
+                })
+
+
 # ── Step resolver ──────────────────────────────────────────────────────────────
 
 def _shot_type_for_zone(zone: Optional[CourtZone]) -> str:
@@ -345,22 +506,32 @@ def step_possession(
     # 1. Defense closes in
     update_defense(state.matchups)
 
-    bh = state.ball_handler
+    offense_players = list(blue_team)
+    all_defenders   = list(red_team)
+
+    # 1.5  Off-ball actions (cuts and screens) happen before the ball handler
+    _step_off_ball_actions(state, offense_players, all_defenders)
+
+    bh       = state.ball_handler
     defender = state.matchups.get(bh)
+    # When the ball handler's defender was pinned by a screen this step,
+    # treat them as absent so the BH effectively acts uncontested.
+    effective_defender = (
+        None
+        if (defender is not None and defender.name in state.screened_defenders)
+        else defender
+    )
     zone = bh.zone
 
-    # 2. Pick action
+    # 2. Pick action (screened defender → uncontested effective weights)
     action = random.choices(
         Tendencies.ACTION_LABELS,
-        weights=_effective_weights(bh, defender),
+        weights=_effective_weights(bh, effective_defender),
     )[0]
-
-    offense_players = list(blue_team)
-    all_defenders = list(red_team)
 
     # 3. Resolve action
     if action in ("3PT", "MID", "LAYUP"):
-        result = resolve_shot(bh, defender, action, zone)
+        result = resolve_shot(bh, effective_defender, action, zone)
         state.action_log.append({"text": result.description, "details": result.breakdown})
         state.last_annotation = {
             "type": "SHOT",
@@ -381,7 +552,7 @@ def step_possession(
             _best_drive_target(bh, all_defenders)
         )
 
-        result = resolve_drive(bh, defender, target_x, target_y, target_label)
+        result = resolve_drive(bh, effective_defender, target_x, target_y, target_label)
         state.action_log.append({"text": result.description, "details": result.breakdown})
 
         # Build defender chase animation data.
