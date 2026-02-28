@@ -361,7 +361,7 @@ def step_possession(
     # 3. Resolve action
     if action in ("3PT", "MID", "LAYUP"):
         result = resolve_shot(bh, defender, action, zone)
-        state.action_log.append(result.description)
+        state.action_log.append({"text": result.description, "details": result.breakdown})
         state.last_annotation = {
             "type": "SHOT",
             "from_x": bh.x, "from_y": bh.y,
@@ -382,7 +382,7 @@ def step_possession(
         )
 
         result = resolve_drive(bh, defender, target_x, target_y, target_label)
-        state.action_log.append(result.description)
+        state.action_log.append({"text": result.description, "details": result.breakdown})
 
         # Build defender chase animation data.
         # Defender positions captured here are *after* update_defense (step 1).
@@ -443,7 +443,7 @@ def step_possession(
                     if on_court_defs else None
                 )
                 layup = resolve_shot(bh, rim_defender, "LAYUP", CourtZone.RESTRICTED_AREA)
-                state.action_log.append(layup.description)
+                state.action_log.append({"text": layup.description, "details": layup.breakdown})
                 state.score   = 2 if layup.made else 0
                 state.outcome = "MADE_2" if layup.made else "MISSED"
                 state.is_over = True

@@ -220,12 +220,24 @@ with row1_right:
     # Action log — small font via HTML
     st.markdown("**Action Log**")
     if possession.action_log:
-        lines = "".join(
-            f"<div style='font-size:11px; padding:1px 0; color:#ccc;'>"
-            f"<span style='color:#888; margin-right:6px;'>{i}.</span>{entry}</div>"
-            for i, entry in enumerate(possession.action_log, start=1)
-        )
-        st.markdown(lines, unsafe_allow_html=True)
+        parts = []
+        for i, entry in enumerate(possession.action_log, start=1):
+            if isinstance(entry, dict):
+                text    = entry.get("text", "")
+                details = entry.get("details", [])
+            else:
+                text    = entry
+                details = []
+            parts.append(
+                f"<div style='font-size:11px; padding:2px 0; color:#ccc;'>"
+                f"<span style='color:#888; margin-right:6px;'>{i}.</span>{text}</div>"
+            )
+            for detail in details:
+                parts.append(
+                    f"<div style='font-size:10px; padding:0 0 1px 18px; color:#666;'>"
+                    f"<span style='color:#444; margin-right:5px;'>&#x21B3;</span>{detail}</div>"
+                )
+        st.markdown("".join(parts), unsafe_allow_html=True)
     else:
         st.markdown(
             "<div style='font-size:11px; color:#666;'>No actions yet — press ▶ Step.</div>",

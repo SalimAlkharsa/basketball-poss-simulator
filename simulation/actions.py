@@ -9,7 +9,7 @@ No state is mutated here — the engine layer owns mutations.
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from models.court import CourtZone
@@ -46,6 +46,7 @@ class ShotResult:
     contested: bool
     prob: float
     description: str
+    breakdown: list = field(default_factory=list)
 
 
 @dataclass
@@ -55,6 +56,7 @@ class DriveResult:
     new_y: float
     prob: float
     description: str
+    breakdown: list = field(default_factory=list)
 
 
 @dataclass
@@ -141,6 +143,23 @@ def resolve_shot(attacker, defender, shot_type: str, zone: Optional[CourtZone]) 
     prob = base * contest * decay
     made = random.random() < prob
 
+    # ── Build breakdown ───────────────────────────────────────────────────────
+    if defender is not None and defender.is_on_court():
+        def_type = "rim prot" if zone in (CourtZone.RESTRICTED_AREA, CourtZone.PAINT) else "out def"
+        breakdown = [
+            f"base ({shot_type}): {base:.0%}",
+            f"{defender.name} {d_dist:.1f} ft away → contest: 1 − {defense_attr:.0%} × (1 − {d_dist:.1f}/{CONTEST_RADIUS:.1f}) = {contest:.0%}  [{def_type}]",
+        ]
+        if decay < 1.0:
+            breakdown.append(f"distance decay: {decay:.0%}")
+        formula = f"{base:.0%} × {contest:.0%}" + (f" × {decay:.0%}" if decay < 1.0 else "")
+        breakdown.append(f"prob = {formula} = {prob:.0%}")
+    else:
+        breakdown = [f"base ({shot_type}): {base:.0%} (uncontested)"]
+        if decay < 1.0:
+            breakdown.append(f"distance decay: {decay:.0%}")
+        breakdown.append(f"prob = {prob:.0%}")
+
     verb = (
         "3-pointer" if shot_type == "3PT"
         else "layup" if shot_type == "LAYUP"
@@ -150,7 +169,7 @@ def resolve_shot(attacker, defender, shot_type: str, zone: Optional[CourtZone]) 
     description = (
         f"{attacker.name} attempts a {verb}{contest_desc} — {result_desc} ({prob:.0%})"
     )
-    return ShotResult(made=made, zone=zone, contested=contested, prob=prob, description=description)
+    return ShotResult(made=made, zone=zone, contested=contested, prob=prob, description=description, breakdown=breakdown)
 
 
 def resolve_drive(
@@ -172,9 +191,19 @@ def resolve_drive(
         d_dist = player_dist(attacker, defender)
         contest = contest_factor(d_dist, defender.defense.speed, DRIVE_CLOSE_THRESHOLD)
         contest_desc = f" past {defender.name}"
+        breakdown = [
+            f"drive eff: {base:.0%}",
+            f"{defender.name} {d_dist:.1f} ft away → contest: 1 − {defender.defense.speed:.0%} × (1 − {d_dist:.1f}/{DRIVE_CLOSE_THRESHOLD:.1f}) = {contest:.0%}  [speed]",
+            f"prob = {base:.0%} × {contest:.0%} = {base * contest:.0%}",
+        ]
     else:
+        d_dist = float("inf")
         contest = 1.0
         contest_desc = ""
+        breakdown = [
+            f"drive eff: {base:.0%} (no defender)",
+            f"prob = {base:.0%}",
+        ]
 
     prob = base * contest
     success = random.random() < prob
@@ -193,7 +222,7 @@ def resolve_drive(
             f"— stopped, resets. ({prob:.0%})"
         )
 
-    return DriveResult(success=success, new_x=new_x, new_y=new_y, prob=prob, description=description)
+    return DriveResult(success=success, new_x=new_x, new_y=new_y, prob=prob, description=description, breakdown=breakdown)
 
 
 def resolve_pass(ball_handler, teammates: list, all_defenders: list) -> PassResult:

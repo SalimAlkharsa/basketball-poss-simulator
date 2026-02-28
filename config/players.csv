@@ -1,5 +1,5 @@
 name,team,position,role,off__three_pt_shooting,off__mid_range_shooting,off__drive_effectiveness,off__passing,off__layup,off__strength,def__outside_defense,def__speed,def__deflections,def__rim_protection,tend__three,tend__mid,tend__drive,tend__pass,tend__layup
-Player 1,Blue Team,PG,OFFENSE,0.99,0.00,0.99,0.00,0.00,0.00,0.72,0.82,0.80,0.40,0.50,0.00,0.50,0.00,0.00
+Player 1,Blue Team,PG,OFFENSE,0.00,0.00,0.99,0.00,0.99,0.00,0.72,0.82,0.80,0.40,0.50,0.00,0.50,0.00,0.00
 Player 2,Blue Team,SG,OFFENSE,0.92,0.45,0.88,0.72,0.28,0.60,0.75,0.76,0.70,0.35,0.45,0.00,0.45,0.10,0.00
 Player 3,Blue Team,SF,OFFENSE,0.40,0.40,0.92,0.80,0.92,0.80,0.80,0.85,0.75,0.45,0.00,0.00,0.70,0.30,0.00
 Player 4,Blue Team,PF,OFFENSE,0.45,0.50,0.60,0.85,0.70,0.78,0.78,0.80,0.82,0.70,0.10,0.10,0.20,0.50,0.10
