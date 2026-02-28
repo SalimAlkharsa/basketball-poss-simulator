@@ -7,6 +7,7 @@ Each resolver is a pure function returning a result dataclass.
 No state is mutated here — the engine layer owns mutations.
 """
 
+import math
 import random
 from dataclasses import dataclass
 from typing import Optional
@@ -24,8 +25,9 @@ from simulation.utils import (
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-_BASKET_X = 25.0
-_BASKET_Y = 5.25
+_BASKET_X      = 25.0
+_BASKET_Y      = 5.25
+_RA_LAND_RADIUS = 2.4   # ft from basket — solidly inside the 4-ft RA arc
 
 _THREE_PT_ZONES = frozenset({
     CourtZone.CORNER_3_LEFT,
@@ -151,18 +153,25 @@ def resolve_shot(attacker, defender, shot_type: str, zone: Optional[CourtZone]) 
     return ShotResult(made=made, zone=zone, contested=contested, prob=prob, description=description)
 
 
-def resolve_drive(attacker, defender) -> DriveResult:
-    """Resolve a drive to the basket.
+def resolve_drive(
+    attacker,
+    defender,
+    target_x: float,
+    target_y: float,
+    target_label: str = "basket",
+) -> DriveResult:
+    """Resolve a drive toward a chosen target position.
 
-    Success: attacker moves halfway toward the basket.
-    Failure: turnover, attacker position unchanged.
+    The attacker's matched defender contests the initial penetration.
+    On success the attacker is placed at (target_x, target_y).
+    On failure the attacker keeps their current position (no turnover — resets).
     """
     base = attacker.offense.drive_effectiveness
 
     if defender is not None and defender.is_on_court():
         d_dist = player_dist(attacker, defender)
         contest = contest_factor(d_dist, defender.defense.speed, DRIVE_CLOSE_THRESHOLD)
-        contest_desc = f" — challenged by {defender.name}"
+        contest_desc = f" past {defender.name}"
     else:
         contest = 1.0
         contest_desc = ""
@@ -171,15 +180,17 @@ def resolve_drive(attacker, defender) -> DriveResult:
     success = random.random() < prob
 
     if success:
-        new_x = min(50.0, max(0.0, (attacker.x + _BASKET_X) / 2))
-        new_y = min(47.0, max(0.0, (attacker.y + _BASKET_Y) / 2))
+        new_x = min(50.0, max(0.0, target_x))
+        new_y = min(47.0, max(0.0, target_y))
         description = (
-            f"{attacker.name} drives{contest_desc} — gets through! ({prob:.0%})"
+            f"{attacker.name} drives to the {target_label}{contest_desc} "
+            f"— gets through! ({prob:.0%})"
         )
     else:
         new_x, new_y = attacker.x, attacker.y
         description = (
-            f"{attacker.name} drives{contest_desc} — stopped, resets. ({prob:.0%})"
+            f"{attacker.name} drives toward the {target_label}{contest_desc} "
+            f"— stopped, resets. ({prob:.0%})"
         )
 
     return DriveResult(success=success, new_x=new_x, new_y=new_y, prob=prob, description=description)

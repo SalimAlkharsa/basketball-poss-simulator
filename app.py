@@ -107,6 +107,21 @@ def _run_drive_animation(
     if defender and defender_final:
         defender.x, defender.y = defender_final
 
+    # ── Phase 2: layup arc (if the drive reached the rim) ─────────────────
+    layup = annotation.get("layup")
+    if layup:
+        fx, fy = layup["from_x"], layup["from_y"]
+        t2 = np.linspace(0.0, 1.0, _N_FRAMES)
+        for ti in t2:
+            bx = fx + (_BASKET_X - fx) * ti
+            by = fy + (_BASKET_Y - fy) * ti + np.sin(ti * np.pi) * 4.0  # lower arc for a layup
+            fig = draw_half_court(
+                debug=debug_mode, players=all_players, ball_pos=(bx, by)
+            )
+            court_placeholder.pyplot(fig, use_container_width=True)
+            plt.close(fig)
+            time.sleep(_FRAME_DELAY)
+
 # ── Session state bootstrap (runs once per session) ───────────────────────────
 if "blue_team" not in st.session_state:
     blue_team, red_team = load_teams()
