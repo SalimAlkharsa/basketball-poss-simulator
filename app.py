@@ -16,8 +16,8 @@ st.set_page_config(
 )
 
 # ── Animation constants ────────────────────────────────────────────────────────
-_N_FRAMES    = 12
-_FRAME_DELAY = 0.04   # seconds per frame → ~480 ms total
+_N_FRAMES    = 24
+_FRAME_DELAY = 1 / 24  # seconds per frame → 24 FPS, ~1 s total
 
 _BASKET_X, _BASKET_Y = 25.0, 5.25
 
