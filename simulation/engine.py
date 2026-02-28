@@ -407,6 +407,8 @@ def step_possession(
                     def_to_y = min(47.0, max(0.0, result.new_y + ddy * scale))
                 else:
                     def_to_x, def_to_y = def_from_x, def_from_y
+                # Commit the chase position so it persists into the next state.
+                defender.place(def_to_x, def_to_y)
             else:
                 # Failed drive — defender stays put (slight reactive shuffle).
                 def_to_x, def_to_y = def_from_x, def_from_y
