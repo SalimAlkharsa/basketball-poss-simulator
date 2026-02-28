@@ -179,7 +179,7 @@ def resolve_drive(attacker, defender) -> DriveResult:
     else:
         new_x, new_y = attacker.x, attacker.y
         description = (
-            f"{attacker.name} drives{contest_desc} — stopped. Turnover. ({prob:.0%})"
+            f"{attacker.name} drives{contest_desc} — stopped, resets. ({prob:.0%})"
         )
 
     return DriveResult(success=success, new_x=new_x, new_y=new_y, prob=prob, description=description)

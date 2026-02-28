@@ -97,10 +97,14 @@ def _effective_weights(ball_handler: Player, defender: Optional[Player]) -> list
         ball_handler.offense.mid_range_shooting
         * contest_factor(d, defender.defense.outside_defense, CONTEST_RADIUS)
     )
-    p_drive = (
-        ball_handler.offense.drive_effectiveness
-        * contest_factor(d, defender.defense.speed, DRIVE_CLOSE_THRESHOLD)
+    # Drive is more attractive when the shot is contested — attack the closeout.
+    # Use the shot-contest reduction as a pressure signal: the tighter the coverage,
+    # the more the ball handler should want to drive rather than force a guarded shot.
+    shot_contest_reduction = 1.0 - contest_factor(
+        d, defender.defense.outside_defense, CONTEST_RADIUS
     )
+    drive_pressure_boost = 1.0 + 2.0 * shot_contest_reduction   # 1.0× open → 3.0× fully guarded
+    p_drive = ball_handler.offense.drive_effectiveness * drive_pressure_boost
     p_layup = (
         ball_handler.offense.layup
         * contest_factor(d, defender.defense.rim_protection, CONTEST_RADIUS)
@@ -237,16 +241,51 @@ def step_possession(
     elif action == "DRIVE":
         result = resolve_drive(bh, defender)
         state.action_log.append(result.description)
+
+        # Build defender chase animation data.
+        # Defender positions captured here are *after* update_defense (step 1).
+        def_from_x: Optional[float] = None
+        def_from_y: Optional[float] = None
+        def_to_x:   Optional[float] = None
+        def_to_y:   Optional[float] = None
+        def_name:   Optional[str]   = None
+        if defender and defender.is_on_court():
+            def_name   = defender.name
+            def_from_x = defender.x
+            def_from_y = defender.y
+            if result.success:
+                # Chase target: CONTEST_RADIUS ft behind the ball handler's
+                # new position, approaching from the defender's current angle.
+                ddx = defender.x - result.new_x
+                ddy = defender.y - result.new_y
+                ddist = math.sqrt(ddx * ddx + ddy * ddy)
+                if ddist > 0.01:
+                    scale    = CONTEST_RADIUS / ddist
+                    def_to_x = min(50.0, max(0.0, result.new_x + ddx * scale))
+                    def_to_y = min(47.0, max(0.0, result.new_y + ddy * scale))
+                else:
+                    def_to_x, def_to_y = def_from_x, def_from_y
+            else:
+                # Failed drive — defender stays put (slight reactive shuffle).
+                def_to_x, def_to_y = def_from_x, def_from_y
+
         state.last_annotation = {
-            "type": "DRIVE",
-            "from_x": bh.x, "from_y": bh.y,
-            "to_x": result.new_x, "to_y": result.new_y,
+            "type":           "DRIVE",
+            "from_x":         bh.x,
+            "from_y":         bh.y,
+            "to_x":           result.new_x,
+            "to_y":           result.new_y,
+            "success":        result.success,
+            "driver_name":    bh.name,
+            "defender_name":  def_name,
+            "defender_from_x": def_from_x,
+            "defender_from_y": def_from_y,
+            "defender_to_x":  def_to_x,
+            "defender_to_y":  def_to_y,
         }
-        if not result.success:
-            state.outcome = "TURNOVER"
-            state.is_over = True
-        else:
+        if result.success:
             bh.place(result.new_x, result.new_y)
+        # On failure: no turnover — ball handler keeps the ball and picks again next step.
 
     elif action == "PASS":
         from_x, from_y = bh.x, bh.y

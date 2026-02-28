@@ -23,12 +23,15 @@ _BASKET_X, _BASKET_Y = 25.0, 5.25
 
 
 def _animation_frames(annotation: dict) -> list[tuple[float, float]]:
-    """Return (ball_x, ball_y) for each animation frame given a last_annotation."""
+    """Return (ball_x, ball_y) for each animation frame given a last_annotation.
+
+    For DRIVE, use _run_drive_animation instead — this path handles PASS & SHOT only.
+    """
     if annotation is None:
         return []
     t = np.linspace(0.0, 1.0, _N_FRAMES)
     atype = annotation["type"]
-    if atype in ("PASS", "DRIVE"):
+    if atype == "PASS":
         fx, fy = annotation["from_x"], annotation["from_y"]
         tx, ty = annotation["to_x"], annotation["to_y"]
         xs = fx + (tx - fx) * t
@@ -39,6 +42,70 @@ def _animation_frames(annotation: dict) -> list[tuple[float, float]]:
         xs = fx + (_BASKET_X - fx) * t
         ys = fy + (_BASKET_Y - fy) * t + np.sin(t * np.pi) * 8.0
         return list(zip(xs.tolist(), ys.tolist()))
+    return []
+
+
+def _run_drive_animation(
+    annotation: dict,
+    all_players: list,
+    debug_mode: bool,
+    court_placeholder,
+) -> None:
+    """Animate a drive: the driver dot tracks the ball; the defender chases.
+
+    Player positions are temporarily mutated each frame and then restored to
+    their correct post-step_possession values so the model remains consistent.
+    """
+    bfx, bfy = annotation["from_x"], annotation["from_y"]
+    btx, bty = annotation["to_x"],   annotation["to_y"]
+    driver_name   = annotation.get("driver_name")
+    defender_name = annotation.get("defender_name")
+
+    driver   = next((p for p in all_players if p.name == driver_name),   None)
+    defender = next((p for p in all_players if p.name == defender_name), None)
+
+    # Snapshot the correct final positions (already set by step_possession).
+    driver_final   = (driver.x,   driver.y)   if driver   else None
+    defender_final = (defender.x, defender.y) if defender else None
+
+    dfx = annotation.get("defender_from_x")
+    dfy = annotation.get("defender_from_y")
+    dtx = annotation.get("defender_to_x", dfx)
+    dty = annotation.get("defender_to_y", dfy)
+    has_defender_anim = (
+        defender is not None
+        and dfx is not None
+        and dfy is not None
+        and (dtx, dty) != (dfx, dfy)
+    )
+
+    t_vals = np.linspace(0.0, 1.0, _N_FRAMES)
+    for ti in t_vals:
+        bx = bfx + (btx - bfx) * ti
+        by = bfy + (bty - bfy) * ti
+
+        # Driver dot tracks the ball.
+        if driver:
+            driver.x = bx
+            driver.y = by
+
+        # Defender chases (only when visible movement exists).
+        if has_defender_anim:
+            defender.x = dfx + (dtx - dfx) * ti
+            defender.y = dfy + (dty - dfy) * ti
+
+        fig = draw_half_court(
+            debug=debug_mode, players=all_players, ball_pos=(bx, by)
+        )
+        court_placeholder.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+        time.sleep(_FRAME_DELAY)
+
+    # Restore to the post-step model positions so Streamlit rerenders correctly.
+    if driver and driver_final:
+        driver.x, driver.y = driver_final
+    if defender and defender_final:
+        defender.x, defender.y = defender_final
 
 # ── Session state bootstrap (runs once per session) ───────────────────────────
 if "blue_team" not in st.session_state:
@@ -46,6 +113,10 @@ if "blue_team" not in st.session_state:
     st.session_state.blue_team = blue_team
     st.session_state.red_team = red_team
     st.session_state.possession = new_possession(blue_team, red_team)
+    st.session_state.auto_play = False
+
+if "auto_play" not in st.session_state:
+    st.session_state.auto_play = False
 
 blue_team = st.session_state.blue_team
 red_team = st.session_state.red_team
@@ -83,11 +154,24 @@ with row1_right:
     st.subheader("Possession")
 
     # Controls
-    col_step, col_new = st.columns(2)
+    col_step, col_new, col_play = st.columns(3)
     with col_step:
-        step_clicked = st.button("▶ Step", disabled=possession.is_over, use_container_width=True)
+        step_clicked = st.button(
+            "▶ Step",
+            disabled=possession.is_over or st.session_state.auto_play,
+            use_container_width=True,
+        )
     with col_new:
-        new_clicked = st.button("↺ New", use_container_width=True)
+        new_clicked = st.button(
+            "↺ New",
+            disabled=st.session_state.auto_play,
+            use_container_width=True,
+        )
+    with col_play:
+        play_label = "⏸ Pause" if st.session_state.auto_play else "▶ Play"
+        if st.button(play_label, use_container_width=True):
+            st.session_state.auto_play = not st.session_state.auto_play
+            st.rerun()
 
     st.markdown("---")
 
@@ -136,13 +220,16 @@ with row1_right:
 # ── Step: animate then commit ──────────────────────────────────────────────────
 if step_clicked and not possession.is_over:
     new_state = step_possession(possession, blue_team, red_team)
-    frames = _animation_frames(new_state.last_annotation)
+    ann = new_state.last_annotation
     all_players_anim = [*blue_team.players, *red_team.players]
-    for bx, by in frames:
-        fig = draw_half_court(debug=debug_mode, players=all_players_anim, ball_pos=(bx, by))
-        court_placeholder.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-        time.sleep(_FRAME_DELAY)
+    if ann and ann["type"] == "DRIVE":
+        _run_drive_animation(ann, all_players_anim, debug_mode, court_placeholder)
+    else:
+        for bx, by in _animation_frames(ann):
+            fig = draw_half_court(debug=debug_mode, players=all_players_anim, ball_pos=(bx, by))
+            court_placeholder.pyplot(fig, use_container_width=True)
+            plt.close(fig)
+            time.sleep(_FRAME_DELAY)
     st.session_state.possession = new_state
     st.rerun()
 
@@ -150,8 +237,29 @@ if new_clicked:
     st.session_state.possession = new_possession(blue_team, red_team)
     st.rerun()
 
+# ── Auto-play loop ─────────────────────────────────────────────────────────────
+if st.session_state.auto_play:
+    if possession.is_over:
+        time.sleep(0.4)  # brief pause so the result is readable before next possession
+        st.session_state.possession = new_possession(blue_team, red_team)
+        st.rerun()
+    else:
+        new_state = step_possession(possession, blue_team, red_team)
+        ann = new_state.last_annotation
+        all_players_anim = [*blue_team.players, *red_team.players]
+        if ann and ann["type"] == "DRIVE":
+            _run_drive_animation(ann, all_players_anim, debug_mode, court_placeholder)
+        else:
+            for bx, by in _animation_frames(ann):
+                fig = draw_half_court(debug=debug_mode, players=all_players_anim, ball_pos=(bx, by))
+                court_placeholder.pyplot(fig, use_container_width=True)
+                plt.close(fig)
+                time.sleep(_FRAME_DELAY)
+        st.session_state.possession = new_state
+        st.rerun()
+
 # ── Static court render (all non-animated frames) ─────────────────────────────
-if not step_clicked:
+if not step_clicked and not st.session_state.auto_play:
     bh = possession.ball_handler
     ball_pos = (bh.x, bh.y) if bh.is_on_court() else None
     fig = draw_half_court(debug=debug_mode, players=all_players, ball_pos=ball_pos)
