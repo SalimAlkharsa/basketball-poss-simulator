@@ -44,6 +44,7 @@ THREE_RADIUS = 23.75   # 3-point arc radius
 CORNER_X     = 3.0     # corner-3 distance from sideline
 
 RA_RADIUS    = 4.0     # restricted-area arc radius
+BALL_R       = 0.85   # basketball visual radius (ft)
 
 # ── Colour palette ─────────────────────────────────────────────────────────────
 
@@ -205,6 +206,33 @@ def _draw_zone_overlays(ax: plt.Axes) -> None:
 
 # ── Player rendering ───────────────────────────────────────────────────────────
 
+def _draw_basketball(ax: plt.Axes, bx: float, by: float) -> None:
+    """Draw a basketball at court position (bx, by)."""
+    # Body
+    ax.add_patch(Circle(
+        (bx, by), BALL_R,
+        facecolor="#E87722", edgecolor="#111111",
+        linewidth=0.7, zorder=15,
+    ))
+    # Horizontal seam
+    ax.plot(
+        [bx - BALL_R * 0.95, bx + BALL_R * 0.95], [by, by],
+        color="#111111", linewidth=0.5, zorder=16,
+    )
+    # Left curved seam
+    ax.add_patch(Arc(
+        (bx, by), BALL_R * 0.75, BALL_R * 1.9,
+        angle=0, theta1=90, theta2=270,
+        color="#111111", linewidth=0.5, zorder=16,
+    ))
+    # Right curved seam
+    ax.add_patch(Arc(
+        (bx, by), BALL_R * 0.75, BALL_R * 1.9,
+        angle=0, theta1=270, theta2=90,
+        color="#111111", linewidth=0.5, zorder=16,
+    ))
+
+
 def _draw_defender_radii(ax: plt.Axes, players: list) -> None:
     """Draw a dashed contest-radius circle around each on-court defender."""
     for player in players:
@@ -226,26 +254,17 @@ def _draw_defender_radii(ax: plt.Axes, players: list) -> None:
         ax.add_patch(circle)
 
 
-def _draw_players(ax: plt.Axes, players: list, ball_handler_name: str = None) -> None:
-    """Draw colored dots + name labels for each player with a court location.
-
-    The ball handler is rendered as a larger star marker in gold to make
-    possession obvious at a glance.
-    """
+def _draw_players(ax: plt.Axes, players: list) -> None:
+    """Draw colored dots + name labels for each on-court player."""
     for player in players:
         if not player.is_on_court():
             continue
         color = "#3399FF" if player.team == "Blue Team" else "#FF4444"
-        is_ball_handler = (ball_handler_name is not None and player.name == ball_handler_name)
-        if is_ball_handler:
-            ax.plot(player.x, player.y, "*", color="#FFD700", markersize=14,
-                    markeredgecolor="white", markeredgewidth=0.8, zorder=12)
-        else:
-            ax.plot(player.x, player.y, "o", color=color, markersize=8,
-                    markeredgecolor="white", markeredgewidth=0.8, zorder=10)
+        ax.plot(player.x, player.y, "o", color=color, markersize=8,
+                markeredgecolor="white", markeredgewidth=0.8, zorder=10)
         ax.text(player.x, player.y + 1.2, player.name.split()[-1],
                 color="white", fontsize=5, ha="center", va="bottom",
-                fontweight="bold", zorder=13)
+                fontweight="bold", zorder=11)
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -253,14 +272,14 @@ def _draw_players(ax: plt.Axes, players: list, ball_handler_name: str = None) ->
 def draw_half_court(
     debug: bool = False,
     players: list = None,
-    ball_handler_name: str = None,
+    ball_pos: tuple = None,
 ) -> plt.Figure:
     """Return a matplotlib Figure of an NBA half-court.
 
     Args:
-        debug: Draw semi-transparent zone overlays and defender contest radii.
-        players: Optional list of Player objects to render as dots.
-        ball_handler_name: Name of the current ball handler; rendered as a star.
+        debug:    Draw semi-transparent zone overlays and defender contest radii.
+        players:  Optional list of Player objects to render as dots.
+        ball_pos: (x, y) of the basketball; drawn as an orange sphere.
     """
     fig, ax = plt.subplots(figsize=(5, 4.7))
     fig.patch.set_facecolor(BG_COLOR)
@@ -281,7 +300,10 @@ def draw_half_court(
     if players:
         if debug:
             _draw_defender_radii(ax, players)
-        _draw_players(ax, players, ball_handler_name=ball_handler_name)
+        _draw_players(ax, players)
+
+    if ball_pos is not None:
+        _draw_basketball(ax, ball_pos[0], ball_pos[1])
 
     ax.set_xlim(-1, COURT_W + 1)
     ax.set_ylim(-1, COURT_D + 2)

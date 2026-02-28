@@ -1,3 +1,6 @@
+import time
+
+import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 
@@ -11,6 +14,31 @@ st.set_page_config(
     page_icon="🏀",
     layout="wide",
 )
+
+# ── Animation constants ────────────────────────────────────────────────────────
+_N_FRAMES    = 12
+_FRAME_DELAY = 0.04   # seconds per frame → ~480 ms total
+
+_BASKET_X, _BASKET_Y = 25.0, 5.25
+
+
+def _animation_frames(annotation: dict) -> list[tuple[float, float]]:
+    """Return (ball_x, ball_y) for each animation frame given a last_annotation."""
+    if annotation is None:
+        return []
+    t = np.linspace(0.0, 1.0, _N_FRAMES)
+    atype = annotation["type"]
+    if atype in ("PASS", "DRIVE"):
+        fx, fy = annotation["from_x"], annotation["from_y"]
+        tx, ty = annotation["to_x"], annotation["to_y"]
+        xs = fx + (tx - fx) * t
+        ys = fy + (ty - fy) * t
+        return list(zip(xs.tolist(), ys.tolist()))
+    if atype == "SHOT":
+        fx, fy = annotation["from_x"], annotation["from_y"]
+        xs = fx + (_BASKET_X - fx) * t
+        ys = fy + (_BASKET_Y - fy) * t + np.sin(t * np.pi) * 8.0
+        return list(zip(xs.tolist(), ys.tolist()))
 
 # ── Session state bootstrap (runs once per session) ───────────────────────────
 if "blue_team" not in st.session_state:
@@ -45,16 +73,10 @@ st.markdown("---")
 row1_left, row1_right = st.columns(2)
 row2_left, row2_right = st.columns(2)
 
-# ── Top-left: Court ────────────────────────────────────────────────────────────
+# ── Top-left: Court (placeholder for animation) ────────────────────────────────
 with row1_left:
     st.subheader("Court")
-    fig = draw_half_court(
-        debug=debug_mode,
-        players=all_players,
-        ball_handler_name=possession.ball_handler.name,
-    )
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
+    court_placeholder = st.empty()
 
 # ── Top-right: Possession (controls + status + log) ───────────────────────────
 with row1_right:
@@ -66,16 +88,6 @@ with row1_right:
         step_clicked = st.button("▶ Step", disabled=possession.is_over, use_container_width=True)
     with col_new:
         new_clicked = st.button("↺ New", use_container_width=True)
-
-    if step_clicked and not possession.is_over:
-        st.session_state.possession = step_possession(possession, blue_team, red_team)
-        possession = st.session_state.possession
-        st.rerun()
-
-    if new_clicked:
-        st.session_state.possession = new_possession(blue_team, red_team)
-        possession = st.session_state.possession
-        st.rerun()
 
     st.markdown("---")
 
@@ -120,6 +132,31 @@ with row1_right:
             "<div style='font-size:11px; color:#666;'>No actions yet — press ▶ Step.</div>",
             unsafe_allow_html=True,
         )
+
+# ── Step: animate then commit ──────────────────────────────────────────────────
+if step_clicked and not possession.is_over:
+    new_state = step_possession(possession, blue_team, red_team)
+    frames = _animation_frames(new_state.last_annotation)
+    all_players_anim = [*blue_team.players, *red_team.players]
+    for bx, by in frames:
+        fig = draw_half_court(debug=debug_mode, players=all_players_anim, ball_pos=(bx, by))
+        court_placeholder.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+        time.sleep(_FRAME_DELAY)
+    st.session_state.possession = new_state
+    st.rerun()
+
+if new_clicked:
+    st.session_state.possession = new_possession(blue_team, red_team)
+    st.rerun()
+
+# ── Static court render (all non-animated frames) ─────────────────────────────
+if not step_clicked:
+    bh = possession.ball_handler
+    ball_pos = (bh.x, bh.y) if bh.is_on_court() else None
+    fig = draw_half_court(debug=debug_mode, players=all_players, ball_pos=ball_pos)
+    court_placeholder.pyplot(fig, use_container_width=True)
+    plt.close(fig)
 
 # ── Bottom-left: empty ────────────────────────────────────────────────────────
 with row2_left:
