@@ -114,6 +114,21 @@ def _effective_weights(ball_handler: Player, defender: Optional[Player]) -> list
         raw[4] * p_layup,  # LAYUP
     ]
 
+    # Zero out shot types that are impossible from the player's current zone.
+    # Remaining weight is absorbed by valid actions through re-normalisation.
+    if zone in _THREE_PT_ZONES:
+        # In 3PT land: only 3PT shot, drive, or pass are valid.
+        weights[1] = 0.0   # no MID
+        weights[4] = 0.0   # no LAYUP
+    elif zone == CourtZone.RESTRICTED_AREA:
+        # At the rim: only layup, drive, or pass.
+        weights[0] = 0.0   # no 3PT
+        weights[1] = 0.0   # no MID
+    elif zone in (CourtZone.PAINT, CourtZone.MID_RANGE):
+        # Inside the arc but not at the rim: mid-range, drive, or pass.
+        weights[0] = 0.0   # no 3PT
+        weights[4] = 0.0   # no LAYUP
+
     total = sum(weights)
     if total == 0.0:
         return raw
