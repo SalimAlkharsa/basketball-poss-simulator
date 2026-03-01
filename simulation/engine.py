@@ -373,7 +373,9 @@ def _step_off_ball_actions(
             player.place(result.to_x, result.to_y)
 
             # Defender recovery: track where the defender ends up for animation
-            cut_outcome = "CONTESTED"  # default
+
+            # Always move defender to trail the cutter by contest radius (or as close as possible)
+            cut_outcome = "CONTESTED" if not result.success else "OPEN"
             defender_from_x = cutter_defender.x if cutter_defender else None
             defender_from_y = cutter_defender.y if cutter_defender else None
             defender_to_x = defender_from_x
@@ -383,30 +385,12 @@ def _step_off_ball_actions(
                 ddx = result.to_x - cutter_defender.x
                 ddy = result.to_y - cutter_defender.y
                 def_distance_to_cut = math.sqrt(ddx * ddx + ddy * ddy)
-
-                if result.success:
-                    # Recovery ability: defender's speed vs cutter's drive_effectiveness
-                    recovery_prob = cutter_defender.defense.speed * (1.0 - player.offense.drive_effectiveness * 0.5)
-
-                    if def_distance_to_cut > CONTEST_RADIUS:
-                        if random.random() < recovery_prob:
-                            # Defender recovers — snap to contest radius behind cutter
-                            ratio = CONTEST_RADIUS / def_distance_to_cut
-                            defender_to_x = min(50.0, max(0.0, result.to_x - ddx * ratio))
-                            defender_to_y = min(47.0, max(0.0, result.to_y - ddy * ratio))
-                            cutter_defender.place(defender_to_x, defender_to_y)
-                            cut_outcome = "CONTESTED"
-                        else:
-                            cut_outcome = "OPEN"
-                    else:
-                        cut_outcome = "CONTESTED"
-                else:
-                    # Cut was covered — defender shadows the cutter to their new spot
-                    if def_distance_to_cut > 0.01:
-                        ratio = min(1.0, CONTEST_RADIUS / def_distance_to_cut)
-                        defender_to_x = min(50.0, max(0.0, result.to_x - ddx * ratio))
-                        defender_to_y = min(47.0, max(0.0, result.to_y - ddy * ratio))
-                        cutter_defender.place(defender_to_x, defender_to_y)
+                # Always move defender to contest radius behind cutter (or as close as possible)
+                if def_distance_to_cut > 0.01:
+                    ratio = min(1.0, CONTEST_RADIUS / def_distance_to_cut)
+                    defender_to_x = min(50.0, max(0.0, result.to_x - ddx * ratio))
+                    defender_to_y = min(47.0, max(0.0, result.to_y - ddy * ratio))
+                    cutter_defender.place(defender_to_x, defender_to_y)
 
             # Build detailed log entry
             description = result.description
