@@ -229,7 +229,10 @@ def _best_cut_destination(cutter, all_defenders: list) -> tuple[float, float]:
 
     Only considers spots that are meaningfully different from the cutter's
     current position (> 1 ft away).  Falls back to the rim if nothing fits.
+    Movement is capped to MAX_STEP feet per step to prevent unrealistic long cuts.
     """
+    MAX_STEP = 10.0  # ft per step — prevents players from covering too much ground at once
+
     candidates = _CUT_CANDIDATES_BY_ZONE.get(cutter.zone, _BASKET_CUT_SPOTS)
     on_court_defs = [d for d in all_defenders if d.is_on_court()]
 
@@ -248,7 +251,20 @@ def _best_cut_destination(cutter, all_defenders: list) -> tuple[float, float]:
             best_separation = separation
             best_spot = (tx, ty)
 
-    return best_spot if best_spot is not None else (_BASKET_X, _BASKET_Y + 0.5)
+    if best_spot is None:
+        best_spot = (_BASKET_X, _BASKET_Y + 0.5)
+
+    # Cap movement distance to MAX_STEP feet per step
+    dx = best_spot[0] - cutter.x
+    dy = best_spot[1] - cutter.y
+    dist = math.sqrt(dx * dx + dy * dy)
+
+    if dist > MAX_STEP:
+        # Move MAX_STEP feet toward the target
+        ratio = MAX_STEP / dist
+        return (cutter.x + dx * ratio, cutter.y + dy * ratio)
+
+    return best_spot
 
 
 def _screen_position(
@@ -260,18 +276,36 @@ def _screen_position(
 
     Places the screener 1.5 ft in front of the defender (on the side facing
     the offensive target), blocking the defender's direct path to the target.
+    Movement is capped to MAX_STEP feet from screener's current position.
     """
+    MAX_STEP = 10.0  # ft per step — screener can't travel more than 10 ft to set screen
+
     dx = target.x - target_defender.x
     dy = target.y - target_defender.y
     dist = math.sqrt(dx * dx + dy * dy)
     if dist < 0.01:
+        # Defender and target at same spot; push screener slightly away
+        ideal_x = min(50.0, max(0.0, target_defender.x + 1.0))
+        ideal_y = target_defender.y
+    else:
+        # Position screener 1.5 ft in front of defender toward target
+        ideal_x = min(50.0, max(0.0, target_defender.x + (dx / dist) * 1.5))
+        ideal_y = min(47.0, max(0.0, target_defender.y + (dy / dist) * 1.5))
+
+    # Cap movement distance to MAX_STEP feet from screener's current position
+    sdx = ideal_x - screener.x
+    sdy = ideal_y - screener.y
+    screen_dist = math.sqrt(sdx * sdx + sdy * sdy)
+
+    if screen_dist > MAX_STEP:
+        # Move MAX_STEP feet toward the screen position
+        ratio = MAX_STEP / screen_dist
         return (
-            min(50.0, max(0.0, target_defender.x + 1.0)),
-            target_defender.y,
+            min(50.0, max(0.0, screener.x + sdx * ratio)),
+            min(47.0, max(0.0, screener.y + sdy * ratio)),
         )
-    sx = min(50.0, max(0.0, target_defender.x + (dx / dist) * 1.5))
-    sy = min(47.0, max(0.0, target_defender.y + (dy / dist) * 1.5))
-    return sx, sy
+
+    return ideal_x, ideal_y
 
 
 def _best_pop_spot(all_defenders: list) -> tuple[float, float]:

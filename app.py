@@ -193,6 +193,16 @@ if "blue_team" not in st.session_state:
 if "auto_play" not in st.session_state:
     st.session_state.auto_play = False
 
+# ── Off-ball tendency session-state init (runs once; also safe on hot-reload) ────
+_POSITIONS = ["PG", "SG", "SF", "PF", "C"]
+if "tend_base_stay" not in st.session_state:
+    _t = TENDENCIES
+    st.session_state["tend_base_stay"] = _t.base_stay
+    for _pos in _POSITIONS:
+        st.session_state[f"tend_cut_{_pos}"]    = _t.cut_factors[_pos]
+        st.session_state[f"tend_screen_{_pos}"] = _t.screen_factors[_pos]
+        st.session_state[f"tend_pop_{_pos}"]    = _t.pop_probabilities[_pos]
+
 blue_team = st.session_state.blue_team
 red_team = st.session_state.red_team
 possession = st.session_state.possession
@@ -413,11 +423,11 @@ if not step_clicked and not st.session_state.auto_play:
     plt.close(fig)
 
 # ── Sync any edited off-ball tendency values → TENDENCIES singleton ───────────
-TENDENCIES.base_stay = st.session_state["tend_base_stay"]
+TENDENCIES.base_stay = st.session_state.get("tend_base_stay", TENDENCIES.base_stay)
 for _pos in _POSITIONS:
-    TENDENCIES.cut_factors[_pos]       = st.session_state[f"tend_cut_{_pos}"]
-    TENDENCIES.screen_factors[_pos]    = st.session_state[f"tend_screen_{_pos}"]
-    TENDENCIES.pop_probabilities[_pos] = st.session_state[f"tend_pop_{_pos}"]
+    TENDENCIES.cut_factors[_pos]       = st.session_state.get(f"tend_cut_{_pos}",    TENDENCIES.cut_factors[_pos])
+    TENDENCIES.screen_factors[_pos]    = st.session_state.get(f"tend_screen_{_pos}", TENDENCIES.screen_factors[_pos])
+    TENDENCIES.pop_probabilities[_pos] = st.session_state.get(f"tend_pop_{_pos}",    TENDENCIES.pop_probabilities[_pos])
 
 # ── Bottom row: full-width — player tendencies + off-ball tendency editor ──────
 st.markdown("---")

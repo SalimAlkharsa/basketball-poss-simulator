@@ -70,6 +70,34 @@ class PassResult:
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
+def _capped_movement(from_x: float, from_y: float, to_x: float, to_y: float, max_step: float = 10.0) -> tuple[float, float]:
+    """Move from one point toward another, capped at max_step feet.
+
+    Args:
+        from_x, from_y: Starting position
+        to_x, to_y: Target position
+        max_step: Maximum distance to move (default 10.0 ft)
+
+    Returns:
+        New (x, y) position, clamped to court bounds [0,50] × [0,47]
+    """
+    dx = to_x - from_x
+    dy = to_y - from_y
+    dist = math.sqrt(dx * dx + dy * dy)
+
+    if dist <= max_step:
+        # Already within max_step, move all the way
+        new_x = min(50.0, max(0.0, to_x))
+        new_y = min(47.0, max(0.0, to_y))
+    else:
+        # Move max_step toward target
+        ratio = max_step / dist
+        new_x = min(50.0, max(0.0, from_x + dx * ratio))
+        new_y = min(47.0, max(0.0, from_y + dy * ratio))
+
+    return new_x, new_y
+
+
 def _base_shot_prob(attacker, shot_type: str) -> float:
     """Return the attacker's base make probability for the given shot type."""
     if shot_type == "3PT":
@@ -209,8 +237,8 @@ def resolve_drive(
     success = random.random() < prob
 
     if success:
-        new_x = min(50.0, max(0.0, target_x))
-        new_y = min(47.0, max(0.0, target_y))
+        # Cap movement to 10 ft per step toward the target
+        new_x, new_y = _capped_movement(attacker.x, attacker.y, target_x, target_y, max_step=10.0)
         description = (
             f"{attacker.name} drives to the {target_label}{contest_desc} "
             f"— gets through! ({prob:.0%})"

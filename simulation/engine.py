@@ -367,8 +367,45 @@ def _step_off_ball_actions(
             cutter_defender = state.matchups.get(player)
             result = resolve_cut(player, cutter_defender, all_defenders)
 
+            # Move the cutter to the new spot unconditionally
+            player.place(result.to_x, result.to_y)
+
+            # Defender recovery: if cut was successful, determine if defender can still contest
+            cut_outcome = "CONTESTED"  # default: defender stays contested
+            if result.success and cutter_defender and cutter_defender.is_on_court():
+                # Calculate distance from defender's current position to cut destination
+                ddx = result.to_x - cutter_defender.x
+                ddy = result.to_y - cutter_defender.y
+                def_distance_to_cut = math.sqrt(ddx * ddx + ddy * ddy)
+
+                # Recovery ability: defender's speed vs cutter's drive_effectiveness
+                # Higher speed = better recovery; higher drive_effectiveness = harder to catch
+                recovery_prob = cutter_defender.defense.speed * (1.0 - player.offense.drive_effectiveness * 0.5)
+
+                if def_distance_to_cut > CONTEST_RADIUS:
+                    # Defender is too far to contest; try to recover
+                    if random.random() < recovery_prob:
+                        # Defender recovers fast enough — snap to contest radius
+                        ratio = CONTEST_RADIUS / def_distance_to_cut
+                        cutter_defender.place(
+                            min(50.0, max(0.0, result.to_x - ddx * ratio)),
+                            min(47.0, max(0.0, result.to_y - ddy * ratio)),
+                        )
+                        cut_outcome = "CONTESTED"
+                    else:
+                        # Defender can't recover in time — cutter gets separation
+                        cut_outcome = "OPEN"
+                else:
+                    # Already within contest radius
+                    cut_outcome = "CONTESTED"
+
+            # Build detailed log entry
+            description = result.description
+            if result.success:
+                description += f" → {cut_outcome}."
+
             state.action_log.append(
-                {"text": result.description, "details": [], "style": "offball"}
+                {"text": description, "details": [], "style": "offball"}
             )
             state.off_ball_annotations.append({
                 "type":        "CUT",
@@ -378,24 +415,8 @@ def _step_off_ball_actions(
                 "to_x":        result.to_x,
                 "to_y":        result.to_y,
                 "success":     result.success,
+                "outcome":     cut_outcome if result.success else "COVERED",
             })
-
-            # Move the cutter to the new spot unconditionally
-            player.place(result.to_x, result.to_y)
-
-            # Defender response: chase tight if the cut was covered
-            if cutter_defender and cutter_defender.is_on_court():
-                if not result.success:
-                    ddx   = cutter_defender.x - result.to_x
-                    ddy   = cutter_defender.y - result.to_y
-                    ddist = math.sqrt(ddx * ddx + ddy * ddy)
-                    snap  = max(0.0, CONTEST_RADIUS - DEFENDER_SNAP_OFFSET)
-                    if ddist > snap + 0.1 and ddist > 0.01:
-                        ratio = snap / ddist
-                        cutter_defender.place(
-                            min(50.0, max(0.0, result.to_x + ddx * ratio)),
-                            min(47.0, max(0.0, result.to_y + ddy * ratio)),
-                        )
 
         elif action == "SCREEN":
             dist_to_bh  = player_dist(player, bh)
