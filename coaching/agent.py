@@ -156,7 +156,7 @@ def _build_positioning_section(players: list["Player"]) -> str:
 
 
 class CoachingAgent:
-    def __init__(self, api_key: str, model: str = "ministral-8b-latest"):
+    def __init__(self, api_key: str, model: str = "ministral3b-latest"):
         self.client = Mistral(api_key=api_key)
         self.model = model
         strategy_path = Path("strategies/strategy.md")
