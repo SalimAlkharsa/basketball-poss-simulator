@@ -131,15 +131,16 @@ def _expected_shot_value(player, all_defenders: list) -> float:
         shot_type = "MID"
 
     base = _base_shot_prob(player, shot_type)
+    point_value = 3.0 if shot_type == "3PT" else 2.0
     active_defs = [d for d in all_defenders if d.is_on_court()]
     if not active_defs:
-        return base
+        return base * point_value
 
     nearest = min(active_defs, key=lambda d: player_dist(player, d))
     d_dist = player_dist(player, nearest)
     defense_attr = _defense_attr_for_zone(nearest, zone)
     contest = contest_factor(d_dist, defense_attr, CONTEST_RADIUS)
-    return base * contest
+    return base * contest * point_value
 
 
 # ── Resolvers ──────────────────────────────────────────────────────────────────

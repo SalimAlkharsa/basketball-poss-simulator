@@ -194,7 +194,8 @@ def _best_drive_target(
                 shot_attr = ball_handler.offense.mid_range_shooting
             shot_cf = 1.0
 
-        score = p_reach * shot_attr * shot_cf
+        point_value = 3.0 if shot_type == "3PT" else 2.0
+        score = p_reach * shot_attr * shot_cf * point_value
 
         if score > best_score:
             best_score = score
@@ -253,10 +254,12 @@ def _effective_weights(ball_handler: Player, defender: Optional[Player]) -> list
         ball_handler.offense.three_pt_shooting
         * contest_factor(d, defender.defense.outside_defense, CONTEST_RADIUS)
         * distance_decay(ball_handler.x, ball_handler.y)
+        * 3.0  # EV: 3 points
     )
     p_mid = (
         ball_handler.offense.mid_range_shooting
         * contest_factor(d, defender.defense.outside_defense, CONTEST_RADIUS)
+        * 2.0  # EV: 2 points
     )
     dx = ball_handler.x - _BASKET_X
     dy = ball_handler.y - _BASKET_Y
@@ -276,17 +279,20 @@ def _effective_weights(ball_handler: Player, defender: Optional[Player]) -> list
         else:
             shot_attr = ball_handler.offense.mid_range_shooting
             def_attr  = defender.defense.outside_defense
+        drive_point_value = 3.0 if shot_type == "3PT" else 2.0
         ev = (
             ball_handler.offense.drive_effectiveness
             * contest_factor(d, defender.defense.speed, DRIVE_CLOSE_THRESHOLD)
             * shot_attr
             * contest_factor(d, def_attr, CONTEST_RADIUS)
+            * drive_point_value
         )
         if ev > p_drive:
             p_drive = ev
     p_layup = (
         ball_handler.offense.layup
         * contest_factor(d, defender.defense.rim_protection, CONTEST_RADIUS)
+        * 2.0  # EV: 2 points
     )
 
     weights = [
