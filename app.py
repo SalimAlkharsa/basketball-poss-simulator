@@ -1,6 +1,8 @@
 import os
 import time
+import traceback
 
+import pandas as pd
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -240,6 +242,7 @@ if "auto_play" not in st.session_state:
 st.session_state.setdefault("possession_history", [])
 st.session_state.setdefault("coaching_cot", None)
 st.session_state.setdefault("coached_positions", {})
+st.session_state.setdefault("coaching_record", None)
 
 
 @st.cache_resource
@@ -248,29 +251,80 @@ def get_coach() -> CoachingAgent:
     return CoachingAgent(api_key=api_key)
 
 
+def _snap_tendencies(players) -> dict:
+    return {
+        p.name: {
+            "3PT": p.tendencies.tendency_three,
+            "MID": p.tendencies.tendency_mid,
+            "DRV": p.tendencies.tendency_drive,
+            "PAS": p.tendencies.tendency_pass,
+            "LAY": p.tendencies.tendency_layup,
+        }
+        for p in players
+    }
+
+
+def _snap_off_ball() -> dict:
+    return {
+        "cut_factors":       dict(TENDENCIES.cut_factors),
+        "screen_factors":    dict(TENDENCIES.screen_factors),
+        "pop_probabilities": dict(TENDENCIES.pop_probabilities),
+        "base_stay":         TENDENCIES.base_stay,
+    }
+
+
 def handle_timeout(blue_team, red_team) -> None:
-    records = st.session_state.possession_history
+    records   = st.session_state.possession_history
     narrative = build_narrative_delta(records)
-    agent = get_coach()
+    agent     = get_coach()
+
+    before_tendencies = _snap_tendencies(blue_team.players)
+    before_off_ball   = _snap_off_ball()
+
+    cot_text          = None
+    decision          = None
+    logs              = []
+    coached_positions = {}
+    error_trace       = None
 
     with st.spinner("Head Coach calling timeout..."):
         try:
             cot_text, decision = agent.call(narrative, blue_team.players)
             st.session_state.coaching_cot = cot_text
         except Exception as e:
+            error_trace = traceback.format_exc()
             st.error(f"Coach agent error: {e}")
-            return
 
-    controller = NormalizationController(blue_team.players)
-    logs, coached_positions = controller.apply(decision)
+    if decision is not None:
+        try:
+            controller = NormalizationController(blue_team.players)
+            logs, coached_positions = controller.apply(decision)
+        except Exception as e:
+            error_trace = (error_trace or "") + "\n\napply() error:\n" + traceback.format_exc()
+            st.error(f"Controller apply error: {e}")
 
-    # Store coached positions for re-application after new_possession()
+    after_tendencies = _snap_tendencies(blue_team.players)
+    after_off_ball   = _snap_off_ball()
+
+    st.session_state.coaching_record = {
+        "narrative":         narrative,
+        "cot_text":          cot_text or "",
+        "logs":              logs,
+        "coached_positions": coached_positions,
+        "before_tendencies": before_tendencies,
+        "after_tendencies":  after_tendencies,
+        "before_off_ball":   before_off_ball,
+        "after_off_ball":    after_off_ball,
+        "error_trace":       error_trace,
+    }
+
     st.session_state.coached_positions = coached_positions
 
     for log in logs:
         st.session_state.possession.action_log.append(log)
 
-    st.success(f'Coach: "{decision.timeout_message}"')
+    if decision is not None:
+        st.success(f'Coach: "{decision.timeout_message}"')
 
 # ── Off-ball tendency session-state init (runs once; also safe on hot-reload) ────
 _POSITIONS = ["PG", "SG", "SF", "PF", "C"]
@@ -400,9 +454,10 @@ with row1_right:
         st.caption("No actions yet — press ▶ Step.")
 
     # ── Coach's Tactical Analysis (CoT expander) ───────────────────────────────
-    if st.session_state.coaching_cot:
+    _cr = st.session_state.coaching_record
+    if _cr and _cr.get("cot_text"):
         with st.expander("Coach's Tactical Analysis"):
-            cot_display = st.session_state.coaching_cot.split("## DATA_START")[0]
+            cot_display = _cr["cot_text"].split("## DATA_START")[0]
             st.markdown(cot_display)
 
 # ── Timeout handler ────────────────────────────────────────────────────────────
@@ -502,10 +557,11 @@ if not step_clicked and not st.session_state.auto_play:
 st.markdown("---")
 st.subheader(" Control Pane")
 
-tab_matchups, tab_on_ball, tab_off_ball = st.tabs([
-    "⚔️ Matchups (Cards)", 
-    "🎯 On-Ball Tendencies", 
-    "🏃‍♂️ Off-Ball System"
+tab_matchups, tab_on_ball, tab_off_ball, tab_coach = st.tabs([
+    "⚔️ Matchups (Cards)",
+    "🎯 On-Ball Tendencies",
+    "🏃‍♂️ Off-Ball System",
+    "🧠 Coach Intel",
 ])
 
 # ── Matchups (Cards) ───────────────────────────────────────────────────────────
@@ -672,3 +728,192 @@ for _pos in _POSITIONS:
     TENDENCIES.cut_factors[_pos]       = st.session_state.get(f"tend_cut_{_pos}",    TENDENCIES.cut_factors[_pos])
     TENDENCIES.screen_factors[_pos]    = st.session_state.get(f"tend_screen_{_pos}", TENDENCIES.screen_factors[_pos])
     TENDENCIES.pop_probabilities[_pos] = st.session_state.get(f"tend_pop_{_pos}",    TENDENCIES.pop_probabilities[_pos])
+
+
+# ── Coach Intel Tab helpers ────────────────────────────────────────────────────
+def _render_tendency_deltas(before: dict, after: dict, players: list) -> None:
+    """Render a color-coded HTML table of on-ball tendency deltas."""
+    THRESHOLD = 0.005
+    rows = []
+    for p in players:
+        name = p.name
+        b, a = before[name], after[name]
+        deltas = {k: a[k] - b[k] for k in b}
+        if all(abs(d) < THRESHOLD for d in deltas.values()):
+            continue
+        rows.append((name, deltas))
+
+    if not rows:
+        st.caption("No on-ball tendency changes.")
+        return
+
+    cols_order = ["3PT", "MID", "DRV", "PAS", "LAY"]
+    header = "".join(
+        f"<th style='padding:3px 8px; font-size:9px; color:#666; text-align:right; font-weight:normal; text-transform:uppercase;'>{c}</th>"
+        for c in cols_order
+    )
+    html = (
+        "<table style='border-collapse:collapse; width:100%; font-size:11px;'>"
+        f"<thead><tr>"
+        f"<th style='padding:3px 8px; font-size:9px; color:#666; text-align:left; font-weight:normal;'>Player</th>"
+        f"{header}"
+        f"</tr></thead><tbody>"
+    )
+    for name, deltas in rows:
+        html += f"<tr style='border-bottom:1px solid #1e1e1e;'>"
+        html += f"<td style='padding:3px 8px; color:#ccc; white-space:nowrap;'>{name}</td>"
+        for col in cols_order:
+            d = deltas[col]
+            if d > THRESHOLD:
+                color = "#81c784"
+                sign  = "+"
+            elif d < -THRESHOLD:
+                color = "#e57373"
+                sign  = ""
+            else:
+                color = "#555"
+                sign  = ""
+            html += f"<td style='padding:3px 8px; text-align:right; color:{color}; font-weight:600;'>{sign}{d:+.3f}</td>"
+        html += "</tr>"
+    html += "</tbody></table>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _render_off_ball_deltas(before: dict, after: dict) -> None:
+    """Render a table of changed off-ball parameters."""
+    THRESHOLD = 0.005
+    rows = []
+    for dict_key in ("cut_factors", "screen_factors", "pop_probabilities"):
+        for pos in _POSITIONS:
+            b_val = before[dict_key][pos]
+            a_val = after[dict_key][pos]
+            delta = a_val - b_val
+            if abs(delta) >= THRESHOLD:
+                rows.append((f"{dict_key} / {pos}", b_val, a_val, delta))
+    # base_stay
+    b_bs = before["base_stay"]
+    a_bs = after["base_stay"]
+    d_bs = a_bs - b_bs
+    if abs(d_bs) >= THRESHOLD:
+        rows.append(("base_stay", b_bs, a_bs, d_bs))
+
+    if not rows:
+        st.caption("No off-ball system changes.")
+        return
+
+    html = (
+        "<table style='border-collapse:collapse; width:100%; font-size:11px;'>"
+        "<thead><tr>"
+        "<th style='padding:3px 8px; font-size:9px; color:#666; text-align:left; font-weight:normal;'>Parameter</th>"
+        "<th style='padding:3px 8px; font-size:9px; color:#666; text-align:right; font-weight:normal;'>Before</th>"
+        "<th style='padding:3px 8px; font-size:9px; color:#666; text-align:right; font-weight:normal;'>After</th>"
+        "<th style='padding:3px 8px; font-size:9px; color:#666; text-align:right; font-weight:normal;'>Δ</th>"
+        "</tr></thead><tbody>"
+    )
+    for param, bv, av, dv in rows:
+        d_color = "#81c784" if dv > 0 else "#e57373"
+        sign    = "+" if dv > 0 else ""
+        html += (
+            f"<tr style='border-bottom:1px solid #1e1e1e;'>"
+            f"<td style='padding:3px 8px; color:#ccc;'>{param}</td>"
+            f"<td style='padding:3px 8px; text-align:right; color:#aaa;'>{bv:.3f}</td>"
+            f"<td style='padding:3px 8px; text-align:right; color:#aaa;'>{av:.3f}</td>"
+            f"<td style='padding:3px 8px; text-align:right; color:{d_color}; font-weight:600;'>{sign}{dv:+.3f}</td>"
+            f"</tr>"
+        )
+    html += "</tbody></table>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Coach Intel Tab ────────────────────────────────────────────────────────────
+with tab_coach:
+    _rec = st.session_state.coaching_record
+    if _rec is None:
+        st.info("No timeout called yet. Complete a possession and click 📋 Timeout.")
+    else:
+        # Surface any errors that occurred during the coaching pipeline
+        if _rec.get("error_trace"):
+            st.error("An error occurred during the coaching pipeline — see details below.")
+            with st.expander("⚠️ Error Traceback", expanded=True):
+                st.code(_rec["error_trace"])
+
+        # ── Section A: What the coach saw ──────────────────────────────────────
+        with st.expander("📥 Inputs to Coach", expanded=True):
+            st.subheader("Game Narrative")
+            st.markdown(_rec["narrative"] or "_No narrative generated._")
+
+            st.subheader("On-Ball Tendencies (before timeout)")
+            _bt = _rec["before_tendencies"]
+            _before_df = pd.DataFrame(_bt).T
+            _before_df.index.name = "Player"
+            st.dataframe(_before_df.style.format("{:.3f}"), use_container_width=True)
+
+            st.subheader("Off-Ball State (before timeout)")
+            _bob = _rec["before_off_ball"]
+            _ob_html = (
+                "<table style='border-collapse:collapse; width:100%; font-size:11px;'>"
+                "<thead><tr>"
+                + "".join(
+                    f"<th style='padding:3px 8px; font-size:9px; color:#666; text-align:right; font-weight:normal;'>{p}</th>"
+                    for p in [""] + _POSITIONS
+                )
+                + "</tr></thead><tbody>"
+            )
+            for dict_key, label in (
+                ("cut_factors", "Cut"),
+                ("screen_factors", "Screen"),
+                ("pop_probabilities", "Pop"),
+            ):
+                _ob_html += f"<tr style='border-bottom:1px solid #1e1e1e;'><td style='padding:3px 8px; color:#aaa;'>{label}</td>"
+                for pos in _POSITIONS:
+                    _ob_html += f"<td style='padding:3px 8px; text-align:right; color:#ccc;'>{_bob[dict_key][pos]:.3f}</td>"
+                _ob_html += "</tr>"
+            _ob_html += (
+                f"<tr><td style='padding:3px 8px; color:#aaa;'>Base Stay</td>"
+                f"<td colspan='{len(_POSITIONS)}' style='padding:3px 8px; color:#ccc;'>{_bob['base_stay']:.3f}</td></tr>"
+                "</tbody></table>"
+            )
+            st.markdown(_ob_html, unsafe_allow_html=True)
+
+        # ── Section B: What the coach said ─────────────────────────────────────
+        with st.expander("💬 Coach's Analysis", expanded=True):
+            _cot = _rec.get("cot_text") or ""
+            if not _cot:
+                st.caption("No LLM response captured.")
+            else:
+                if "## DATA_START" in _cot:
+                    _prose, _rest = _cot.split("## DATA_START", 1)
+                    _json_block   = _rest.split("## DATA_END")[0].strip()
+                else:
+                    _prose      = _cot
+                    _json_block = ""
+                st.markdown(_prose.strip())
+                if _json_block:
+                    st.code(_json_block, language="json")
+
+        # ── Section C: What materially changed ─────────────────────────────────
+        with st.expander("📊 Strategy Changes", expanded=True):
+            st.markdown("**On-Ball Tendency Deltas**")
+            _render_tendency_deltas(
+                _rec["before_tendencies"],
+                _rec["after_tendencies"],
+                blue_team.players,
+            )
+
+            st.markdown("**Off-Ball System Changes**")
+            _render_off_ball_deltas(_rec["before_off_ball"], _rec["after_off_ball"])
+
+            if _rec["coached_positions"]:
+                st.markdown("**Positioning Changes**")
+                for _pname, (_px, _py) in _rec["coached_positions"].items():
+                    try:
+                        _pp = blue_team.player_by_name(_pname)
+                        _zone_label = _pp.zone.value if _pp.zone else "unknown zone"
+                    except Exception:
+                        _zone_label = "unknown zone"
+                    st.markdown(
+                        f"- **{_pname}** → {_zone_label} ({_px:.1f}, {_py:.1f})"
+                    )
+
+            with st.expander("Full Apply Log"):
+                st.code("\n".join(_rec["logs"]))

@@ -18,11 +18,11 @@ from pydantic.functional_validators import AfterValidator
 
 class RawTendencySuggestion(BaseModel):
     player_name: str
-    tendency_three: float = Field(..., ge=0.0)
-    tendency_mid: float = Field(..., ge=0.0)
-    tendency_drive: float = Field(..., ge=0.0)
-    tendency_pass: float = Field(..., ge=0.0)
-    tendency_layup: float = Field(..., ge=0.0)
+    tendency_three: Optional[float] = Field(default=None, ge=0.0)
+    tendency_mid: Optional[float] = Field(default=None, ge=0.0)
+    tendency_drive: Optional[float] = Field(default=None, ge=0.0)
+    tendency_pass: Optional[float] = Field(default=None, ge=0.0)
+    tendency_layup: Optional[float] = Field(default=None, ge=0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -110,4 +110,4 @@ class CoachingDecision(BaseModel):
     adjustments: list[RawTendencySuggestion]
     off_ball: RawOffBallSuggestion = Field(default_factory=RawOffBallSuggestion)
     positioning: list[PlayerZoneAssignment] = Field(default_factory=list)
-    timeout_message: str
+    timeout_message: str = "Adjustments made."

@@ -55,13 +55,14 @@ class NormalizationController:
             if player is None:
                 logs.append(f"[WARN] Unknown player: {raw.player_name} — skipped.")
                 continue
+            cur = player.tendencies
             safe = SafeTendencies(
                 player_name=raw.player_name,
-                tendency_three=raw.tendency_three,
-                tendency_mid=raw.tendency_mid,
-                tendency_drive=raw.tendency_drive,
-                tendency_pass=raw.tendency_pass,
-                tendency_layup=raw.tendency_layup,
+                tendency_three=raw.tendency_three  if raw.tendency_three  is not None else cur.tendency_three,
+                tendency_mid=raw.tendency_mid      if raw.tendency_mid    is not None else cur.tendency_mid,
+                tendency_drive=raw.tendency_drive  if raw.tendency_drive  is not None else cur.tendency_drive,
+                tendency_pass=raw.tendency_pass    if raw.tendency_pass   is not None else cur.tendency_pass,
+                tendency_layup=raw.tendency_layup  if raw.tendency_layup  is not None else cur.tendency_layup,
             )
             player.tendencies = Tendencies(
                 tendency_three=safe.tendency_three,

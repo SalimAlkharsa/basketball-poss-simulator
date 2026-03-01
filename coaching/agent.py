@@ -35,6 +35,7 @@ You MUST respond in two clearly separated sections:
 Reference the strategy document and specific game trends. Think step-by-step.]
 
 ## DATA_START
+(no code fences — raw JSON only)
 {
   "timeout_message": "...",
   "adjustments": [
@@ -72,6 +73,7 @@ IMPORTANT:
   Example: [{{"player_name": "Player 3", "zone": "CORNER_3_RIGHT"}}]
   Only move players when it makes clear tactical sense. Do not place two players in the same zone.
 - Write ## TACTICAL ANALYSIS first. Never output JSON before your analysis.
+- Keep the TACTICAL ANALYSIS concise (under 400 words). You MUST always reach the ## DATA_START block.
 """
 
 
@@ -140,7 +142,7 @@ class CoachingAgent:
             model=self.model,
             messages=messages,
             temperature=0.4,
-            max_tokens=1500,
+            max_tokens=3000,
         )
         full_text = response.choices[0].message.content
         decision = self._extract_decision(full_text)
@@ -169,17 +171,36 @@ class CoachingAgent:
         ]
 
     def _extract_decision(self, text: str) -> CoachingDecision:
-        """Regex-extract JSON block between ## DATA_START and ## DATA_END."""
-        match = re.search(
-            r"## DATA_START\s*(\{.*?\})\s*## DATA_END",
-            text,
-            re.DOTALL,
-        )
+        """Regex-extract JSON block between ## DATA_START and ## DATA_END.
+
+        Tolerates an optional ```json ... ``` code fence inside the block.
+        Also handles responses that never emit ## DATA_END (truncated output)
+        by falling back to the first complete top-level JSON object after
+        ## DATA_START.
+        """
+        # Grab everything after ## DATA_START (up to ## DATA_END if present)
+        start_match = re.search(r"## DATA_START\s*", text)
+        if not start_match:
+            raise ValueError(
+                "LLM response missing DATA_START/DATA_END block.\n"
+                f"Full response:\n{text}"
+            )
+        after_start = text[start_match.end():]
+        end_idx = after_start.find("## DATA_END")
+        raw_block = after_start[:end_idx].strip() if end_idx != -1 else after_start.strip()
+
+        # Strip optional markdown code fence
+        raw_block = re.sub(r"^```(?:json)?\s*", "", raw_block)
+        raw_block = re.sub(r"\s*```\s*$", "", raw_block)
+        raw_block = raw_block.strip()
+
+        # Extract first complete top-level JSON object
+        match = re.search(r"\{.*\}", raw_block, re.DOTALL)
         if not match:
             raise ValueError(
                 "LLM response missing DATA_START/DATA_END block.\n"
                 f"Full response:\n{text}"
             )
-        raw_json = match.group(1)
+        raw_json = match.group(0)
         data = json.loads(raw_json)
         return CoachingDecision.model_validate(data)
