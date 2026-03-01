@@ -247,6 +247,7 @@ st.session_state.setdefault("coaching_cot", None)
 st.session_state.setdefault("coached_positions", {})
 st.session_state.setdefault("coaching_record", None)
 st.session_state.setdefault("ppp_trajectory", [])
+st.session_state.setdefault("simulate_counter", 0)
 
 
 @st.cache_resource
@@ -296,6 +297,7 @@ def _run_backend_simulations(n: int, blue_team, red_team, coached_positions) -> 
 
 
 def handle_timeout(blue_team, red_team) -> None:
+    st.session_state.simulate_counter = 0
     records   = st.session_state.possession_history + st.session_state.backend_history
     narrative = build_action_logs_text(records)
     agent     = get_coach()
@@ -557,6 +559,13 @@ if new_clicked:
                 st.session_state.backend_history = st.session_state.backend_history[-max_backend:]
         
         st.session_state.possession_history = recent_fg
+        
+        st.session_state.simulate_counter += (1 + sims)
+        if st.session_state.simulate_counter >= 30:
+            st.session_state.simulate_counter = 0
+            st.session_state.auto_play = False
+            st.toast("30 possessions reached. Paused for a potential Timeout.", icon="📋")
+            
     st.session_state.possession = new_possession(blue_team, red_team)
     # Re-apply coached positions over the defaults set by new_possession()
     for name, (x, y) in st.session_state.get("coached_positions", {}).items():
@@ -596,6 +605,13 @@ if st.session_state.auto_play:
                 st.session_state.backend_history = st.session_state.backend_history[-max_backend:]
         
         st.session_state.possession_history = recent_fg
+        
+        st.session_state.simulate_counter += (1 + sims)
+        if st.session_state.simulate_counter >= 30:
+            st.session_state.simulate_counter = 0
+            st.session_state.auto_play = False
+            st.toast("30 possessions reached. Paused for a potential Timeout.", icon="📋")
+            
         st.session_state.possession = new_possession(blue_team, red_team)
         # Re-apply coached positions over the defaults set by new_possession()
         for name, (x, y) in st.session_state.get("coached_positions", {}).items():
