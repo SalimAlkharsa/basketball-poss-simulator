@@ -845,46 +845,13 @@ with tab_coach:
         # ── Section A: What the coach saw ──────────────────────────────────────
         with st.expander("📥 Inputs to Coach", expanded=True):
             if _rec.get("prompt_data"):
-                st.subheader("System Prompt")
-                st.code(_rec["prompt_data"]["system"], language="markdown")
-                st.subheader("User Prompt (Game Narrative & State)")
-                st.code(_rec["prompt_data"]["user"], language="markdown")
+                with st.expander("System Prompt"):
+                    st.code(_rec["prompt_data"]["system"], language="markdown")
+                with st.expander("User Prompt (Game Narrative & State)"):
+                    st.code(_rec["prompt_data"]["user"], language="markdown")
             else:
-                st.subheader("Game Logs")
-                st.markdown(_rec["narrative"] or "_No logic generated._")
-
-            st.subheader("On-Ball Tendencies (before timeout)")
-            _bt = _rec["before_tendencies"]
-            _before_df = pd.DataFrame(_bt).T
-            _before_df.index.name = "Player"
-            st.dataframe(_before_df.style.format("{:.3f}"), use_container_width=True)
-
-            st.subheader("Off-Ball State (before timeout)")
-            _bob = _rec["before_off_ball"]
-            _ob_html = (
-                "<table style='border-collapse:collapse; width:100%; font-size:11px;'>"
-                "<thead><tr>"
-                + "".join(
-                    f"<th style='padding:3px 8px; font-size:9px; color:#666; text-align:right; font-weight:normal;'>{p}</th>"
-                    for p in [""] + _POSITIONS
-                )
-                + "</tr></thead><tbody>"
-            )
-            for dict_key, label in (
-                ("cut_factors", "Cut"),
-                ("screen_factors", "Screen"),
-                ("pop_probabilities", "Pop"),
-            ):
-                _ob_html += f"<tr style='border-bottom:1px solid #1e1e1e;'><td style='padding:3px 8px; color:#aaa;'>{label}</td>"
-                for pos in _POSITIONS:
-                    _ob_html += f"<td style='padding:3px 8px; text-align:right; color:#ccc;'>{_bob[dict_key][pos]:.3f}</td>"
-                _ob_html += "</tr>"
-            _ob_html += (
-                f"<tr><td style='padding:3px 8px; color:#aaa;'>Base Stay</td>"
-                f"<td colspan='{len(_POSITIONS)}' style='padding:3px 8px; color:#ccc;'>{_bob['base_stay']:.3f}</td></tr>"
-                "</tbody></table>"
-            )
-            st.markdown(_ob_html, unsafe_allow_html=True)
+                with st.expander("Game Logs"):
+                    st.markdown(_rec["narrative"] or "_No logic generated._")
 
         # ── Section B: What the coach said ─────────────────────────────────────
         with st.expander("💬 Coach's Analysis", expanded=True):
