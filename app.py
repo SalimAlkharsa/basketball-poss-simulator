@@ -323,7 +323,7 @@ def handle_timeout(blue_team, red_team) -> None:
         "error_trace":       error_trace,
     }
 
-    st.session_state.coached_positions = coached_positions
+    st.session_state.coached_positions.update(coached_positions)
 
     for log in logs:
         st.session_state.possession.action_log.append(log)
@@ -521,6 +521,12 @@ if st.session_state.auto_play:
         st.session_state.possession_history.append(rec)
         st.session_state.possession_history = st.session_state.possession_history[-10:]
         st.session_state.possession = new_possession(blue_team, red_team)
+        # Re-apply coached positions over the defaults set by new_possession()
+        for name, (x, y) in st.session_state.get("coached_positions", {}).items():
+            try:
+                blue_team.player_by_name(name).place(x, y)
+            except (ValueError, AttributeError):
+                pass
         st.rerun()
     else:
         new_state = step_possession(possession, blue_team, red_team)
