@@ -25,9 +25,10 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── Animation constants ────────────────────────────────────────────────────────
+# ── Constants ──────────────────────────────────────────────────────────────────
 _N_FRAMES    = 24
 _FRAME_DELAY = 1 / 24  # seconds per frame → 24 FPS, ~1 s total
+_PPP_WINDOW_SIZE = 20
 
 _BASKET_X, _BASKET_Y = 25.0, 5.25
 
@@ -243,6 +244,7 @@ st.session_state.setdefault("possession_history", [])
 st.session_state.setdefault("coaching_cot", None)
 st.session_state.setdefault("coached_positions", {})
 st.session_state.setdefault("coaching_record", None)
+st.session_state.setdefault("ppp_trajectory", [])
 
 
 @st.cache_resource
@@ -413,8 +415,8 @@ with row1_right:
         icon, label = outcome_labels.get(possession.outcome, ("❓", possession.outcome))
         
         c_res, c_score = st.columns(2)
-        c_res.metric("Result", f"{icon} {label}")
-        c_score.metric("Score", f"+{possession.score} pts")
+        c_res.markdown(f"**Result:**  \n{icon} {label}")
+        c_score.markdown(f"**Score:**  \n+{possession.score} pts")
     else:
         bh = possession.ball_handler
         defender = possession.matchups.get(bh)
@@ -428,10 +430,10 @@ with row1_right:
         steps_str = str(len(possession.action_log))
         
         c_ball, c_zone, c_def, c_steps = st.columns(4)
-        c_ball.metric("Ball", bh.name)
-        c_zone.metric("Zone", zone_str)
-        c_def.metric("Defender", def_str)
-        c_steps.metric("Steps", steps_str)
+        c_ball.markdown(f"**Ball**  \n{bh.name}")
+        c_zone.markdown(f"**Zone**  \n{zone_str}")
+        c_def.markdown(f"**Defender**  \n{def_str}")
+        c_steps.markdown(f"**Steps**  \n{steps_str}")
 
     # ── Action log in scrollable container ────────────────────────────────────
     st.markdown("**Action Log**")
@@ -458,12 +460,12 @@ with row1_right:
     else:
         st.caption("No actions yet — press ▶ Step.")
 
-    # ── Coach's Tactical Analysis (CoT expander) ───────────────────────────────
-    _cr = st.session_state.coaching_record
-    if _cr and _cr.get("cot_text"):
-        with st.expander("Coach's Tactical Analysis"):
-            cot_display = _cr["cot_text"].split("## DATA_START")[0]
-            st.markdown(cot_display)
+    # ── PPV Dashboard (Replaced Tactical Analysis) ─────────────────────────────
+    st.markdown(f"**PPV Trajectory (Last {_PPP_WINDOW_SIZE} Possessions Moving Average)**")
+    if len(st.session_state.ppp_trajectory) > 0:
+        st.line_chart(st.session_state.ppp_trajectory, height=150)
+    else:
+        st.caption("No possession history to calculate PPV.")
 
 # ── Timeout handler ────────────────────────────────────────────────────────────
 if timeout_clicked:
@@ -503,7 +505,12 @@ if new_clicked:
     if st.session_state.possession.is_over:
         rec = record_possession(st.session_state.possession)
         st.session_state.possession_history.append(rec)
-        st.session_state.possession_history = st.session_state.possession_history[-10:]
+        
+        recent = st.session_state.possession_history[-_PPP_WINDOW_SIZE:]
+        ppp = sum(r.score for r in recent) / len(recent)
+        st.session_state.ppp_trajectory.append(ppp)
+        
+        st.session_state.possession_history = recent
     st.session_state.possession = new_possession(blue_team, red_team)
     # Re-apply coached positions over the defaults set by new_possession()
     for name, (x, y) in st.session_state.get("coached_positions", {}).items():
@@ -519,7 +526,12 @@ if st.session_state.auto_play:
         time.sleep(0.4)  # brief pause so the result is readable before next possession
         rec = record_possession(possession)
         st.session_state.possession_history.append(rec)
-        st.session_state.possession_history = st.session_state.possession_history[-10:]
+        
+        recent = st.session_state.possession_history[-_PPP_WINDOW_SIZE:]
+        ppp = sum(r.score for r in recent) / len(recent)
+        st.session_state.ppp_trajectory.append(ppp)
+        
+        st.session_state.possession_history = recent
         st.session_state.possession = new_possession(blue_team, red_team)
         # Re-apply coached positions over the defaults set by new_possession()
         for name, (x, y) in st.session_state.get("coached_positions", {}).items():
