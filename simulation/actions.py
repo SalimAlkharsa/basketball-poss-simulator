@@ -70,13 +70,13 @@ class PassResult:
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
-def _capped_movement(from_x: float, from_y: float, to_x: float, to_y: float, max_step: float = 10.0) -> tuple[float, float]:
+def _capped_movement(from_x: float, from_y: float, to_x: float, to_y: float, max_step: float = 15.0) -> tuple[float, float]:
     """Move from one point toward another, capped at max_step feet.
 
     Args:
         from_x, from_y: Starting position
         to_x, to_y: Target position
-        max_step: Maximum distance to move (default 10.0 ft)
+        max_step: Maximum distance to move (default 15.0 ft)
 
     Returns:
         New (x, y) position, clamped to court bounds [0,50] × [0,47]
@@ -238,8 +238,8 @@ def resolve_drive(
     success = random.random() < prob
 
     if success:
-        # Cap movement to 10 ft per step toward the target
-        new_x, new_y = _capped_movement(attacker.x, attacker.y, target_x, target_y, max_step=10.0)
+        # Cap movement to 15 ft per step toward the target
+        new_x, new_y = _capped_movement(attacker.x, attacker.y, target_x, target_y, max_step=15.0)
         description = (
             f"{attacker.name} drives to the {target_label}{contest_desc} "
             f"— gets through! ({prob:.0%})"

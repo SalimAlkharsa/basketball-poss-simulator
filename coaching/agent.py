@@ -132,12 +132,12 @@ class CoachingAgent:
         self,
         narrative: str,
         players: list["Player"],
-    ) -> tuple[str, CoachingDecision]:
+    ) -> tuple[str, CoachingDecision, dict[str, str]]:
         """
-        Returns (full_cot_text, parsed_decision).
+        Returns (full_cot_text, parsed_decision, prompt_data).
         Raises ValueError if JSON block is missing or malformed.
         """
-        messages = self._build_messages(narrative, players)
+        messages, prompt_data = self._build_messages(narrative, players)
         response = self.client.chat.complete(
             model=self.model,
             messages=messages,
@@ -146,13 +146,13 @@ class CoachingAgent:
         )
         full_text = response.choices[0].message.content
         decision = self._extract_decision(full_text)
-        return full_text, decision
+        return full_text, decision, prompt_data
 
     def _build_messages(
         self,
         narrative: str,
         players: list["Player"],
-    ) -> list[dict]:
+    ) -> tuple[list[dict], dict[str, str]]:
         tendencies_table = _build_tendencies_table(players)
         off_ball_section = _build_off_ball_section()
         positioning_section = _build_positioning_section(players)
@@ -165,10 +165,15 @@ class CoachingAgent:
             f"=== CURRENT POSITIONING ===\n{positioning_section}"
         )
 
+        prompt_data = {
+            "system": _SYSTEM_PROMPT,
+            "user": user_content
+        }
+
         return [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
-        ]
+        ], prompt_data
 
     def _extract_decision(self, text: str) -> CoachingDecision:
         """Regex-extract JSON block between ## DATA_START and ## DATA_END.

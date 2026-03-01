@@ -283,13 +283,14 @@ def handle_timeout(blue_team, red_team) -> None:
 
     cot_text          = None
     decision          = None
+    prompt_data       = None
     logs              = []
     coached_positions = {}
     error_trace       = None
 
     with st.spinner("Head Coach calling timeout..."):
         try:
-            cot_text, decision = agent.call(narrative, blue_team.players)
+            cot_text, decision, prompt_data = agent.call(narrative, blue_team.players)
             st.session_state.coaching_cot = cot_text
         except Exception as e:
             error_trace = traceback.format_exc()
@@ -309,6 +310,7 @@ def handle_timeout(blue_team, red_team) -> None:
     st.session_state.coaching_record = {
         "narrative":         narrative,
         "cot_text":          cot_text or "",
+        "prompt_data":       prompt_data,
         "logs":              logs,
         "coached_positions": coached_positions,
         "before_tendencies": before_tendencies,
@@ -839,8 +841,14 @@ with tab_coach:
 
         # ── Section A: What the coach saw ──────────────────────────────────────
         with st.expander("📥 Inputs to Coach", expanded=True):
-            st.subheader("Game Narrative")
-            st.markdown(_rec["narrative"] or "_No narrative generated._")
+            if _rec.get("prompt_data"):
+                st.subheader("System Prompt")
+                st.code(_rec["prompt_data"]["system"], language="markdown")
+                st.subheader("User Prompt (Game Narrative & State)")
+                st.code(_rec["prompt_data"]["user"], language="markdown")
+            else:
+                st.subheader("Game Narrative")
+                st.markdown(_rec["narrative"] or "_No narrative generated._")
 
             st.subheader("On-Ball Tendencies (before timeout)")
             _bt = _rec["before_tendencies"]

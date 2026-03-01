@@ -40,7 +40,7 @@ SCREEN_RANGE = 6.0      # ft — screener must be within this of the screen posi
 CUT_CONTEST_RADIUS = 5.0  # ft — wider than shot contest; defender needs a head start
 # Max distance a non-center screener can travel to set a screen in one step.
 # Centers have no cap (they're big-body screeners who operate near the paint).
-MAX_SCREEN_DIST = 10.0  # ft — non-center limit
+MAX_SCREEN_DIST = 20.0  # ft — non-center limit
 
 # ── Off-ball tendency model ────────────────────────────────────────────────────
 
@@ -234,7 +234,7 @@ def _best_cut_destination(cutter, all_defenders: list) -> tuple[float, float]:
     current position (> 1 ft away).  Falls back to the rim if nothing fits.
     Movement is capped to MAX_STEP feet per step to prevent unrealistic long cuts.
     """
-    MAX_STEP = 10.0  # ft per step — prevents players from covering too much ground at once
+    MAX_STEP = 15.0  # ft per step — prevents players from covering too much ground at once
 
     candidates = _CUT_CANDIDATES_BY_ZONE.get(cutter.zone, _BASKET_CUT_SPOTS)
     on_court_defs = [d for d in all_defenders if d.is_on_court()]
@@ -397,6 +397,22 @@ def resolve_off_ball_screen(
 
     sx, sy = _screen_position(screener, target, target_defender)
     dist_to_screen = math.sqrt((sx - from_x) ** 2 + (sy - from_y) ** 2)
+
+    if screener.position.value != "C" and dist_to_screen > MAX_SCREEN_DIST:
+        return ScreenResult(
+            screener_name=screener.name,
+            screener_from_x=from_x,
+            screener_from_y=from_y,
+            target_name=target.name,
+            success=False,
+            screen_x=from_x,
+            screen_y=from_y,
+            description=(
+                f"[screen] {screener.name} tries to screen for {target.name} "
+                f"— aborts, too far away ({dist_to_screen:.1f} ft)."
+            ),
+        )
+
     reach_factor   = max(0.25, 1.0 - dist_to_screen / 22.0)
     prob           = screener.offense.strength * reach_factor
     success        = random.random() < prob
@@ -463,6 +479,26 @@ def resolve_on_ball_screen(
 
     sx, sy = _screen_position(screener, ball_handler, bh_defender)
     dist_to_screen = math.sqrt((sx - from_x) ** 2 + (sy - from_y) ** 2)
+
+    if screener.position.value != "C" and dist_to_screen > MAX_SCREEN_DIST:
+        return OnBallScreenResult(
+            screener_name=screener.name,
+            screener_from_x=from_x,
+            screener_from_y=from_y,
+            ball_handler_name=ball_handler.name,
+            success=False,
+            screen_x=from_x,
+            screen_y=from_y,
+            roll_or_pop="ROLL",
+            final_x=from_x,
+            final_y=from_y,
+            final_zone=screener.zone,
+            description=(
+                f"[on-ball screen] {screener.name} tries to screen "
+                f"for {ball_handler.name} — aborts, too far away ({dist_to_screen:.1f} ft)."
+            ),
+        )
+
     reach_factor   = max(0.25, 1.0 - dist_to_screen / 22.0)
     prob           = screener.offense.strength * reach_factor
     success        = random.random() < prob
