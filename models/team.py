@@ -74,14 +74,14 @@ class Team:
         OFFENSE uses 5-out wing spacing; DEFENSE mirrors man-to-man.
         """
         offense_defaults = {
-            Position.PG: (25.0, 23.0),
-            Position.SG: (38.0, 23.0),
-            Position.SF: (44.0, 10.0),
-            Position.PF: (12.0, 23.0),
-            Position.C:  (6.0,  10.0),
+            Position.PG: (25.0, 32.0),
+            Position.SG: (44.0, 23.0),
+            Position.SF: (49.0, 10.0),
+            Position.PF: (6.0, 23.0),
+            Position.C:  (1.0,  10.0),
         }
         defense_defaults = {
-            Position.PG: (25.0, 22.0),
+            Position.PG: (25.0, 30.0),
             Position.SG: (37.0, 22.0),
             Position.SF: (43.0, 11.0),
             Position.PF: (13.0, 22.0),
