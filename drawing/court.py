@@ -18,7 +18,34 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Arc, Circle, Wedge
 
+
 from simulation.utils import CONTEST_RADIUS
+def _draw_scale_bar(ax: plt.Axes, length_ft: float = 10.0, x: float = 2.0, y: float = 45.0) -> None:
+    """Draw a visually appealing scale bar at (x, y) showing `length_ft` feet."""
+    # Drop shadow for bar
+    ax.plot([x+0.12, x + length_ft+0.12], [y-0.12, y-0.12], color="#888888", lw=7, alpha=0.25, zorder=29, solid_capstyle="round")
+    # Main bar
+    ax.plot([x, x + length_ft], [y, y], color="#222", lw=5, zorder=30, solid_capstyle="round")
+    # End ticks (with shadow)
+    ax.plot([x+0.12, x+0.12], [y - 0.5, y + 0.5], color="#888888", lw=4, alpha=0.25, zorder=29, solid_capstyle="round")
+    ax.plot([x + length_ft+0.12, x + length_ft+0.12], [y - 0.5, y + 0.5], color="#888888", lw=4, alpha=0.25, zorder=29, solid_capstyle="round")
+    ax.plot([x, x], [y - 0.5, y + 0.5], color="#222", lw=3, zorder=31, solid_capstyle="round")
+    ax.plot([x + length_ft, x + length_ft], [y - 0.5, y + 0.5], color="#222", lw=3, zorder=31, solid_capstyle="round")
+    # Label with elegant background
+    ax.text(
+        x + length_ft / 2, y + 1.1,
+        f"{int(length_ft)} ft",
+        ha="center", va="bottom",
+        color="#222", fontsize=12, fontweight="bold",
+        zorder=32,
+        bbox=dict(
+            facecolor="white",
+            edgecolor="#bbb",
+            alpha=0.85,
+            boxstyle="round,pad=0.3"
+        ),
+        fontfamily="DejaVu Sans"
+    )
 
 # ── Court constants ────────────────────────────────────────────────────────────
 
@@ -290,6 +317,7 @@ def draw_half_court(
 
     if debug:
         _draw_zone_overlays(ax)
+        _draw_scale_bar(ax)
 
     _draw_ft_line_and_circle(ax)
     _draw_three_point_line(ax)

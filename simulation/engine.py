@@ -30,6 +30,8 @@ from simulation.off_ball import (
     resolve_cut,
     resolve_off_ball_screen,
     resolve_on_ball_screen,
+    MAX_SCREEN_DIST,
+    _screen_position,
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -370,38 +372,41 @@ def _step_off_ball_actions(
             # Move the cutter to the new spot unconditionally
             player.place(result.to_x, result.to_y)
 
-            # Defender recovery: if cut was successful, determine if defender can still contest
-            cut_outcome = "CONTESTED"  # default: defender stays contested
+            # Defender recovery: track where the defender ends up for animation
+            cut_outcome = "CONTESTED"  # default
             defender_from_x = cutter_defender.x if cutter_defender else None
             defender_from_y = cutter_defender.y if cutter_defender else None
             defender_to_x = defender_from_x
             defender_to_y = defender_from_y
 
-            if result.success and cutter_defender and cutter_defender.is_on_court():
-                # Calculate distance from defender's current position to cut destination
+            if cutter_defender and cutter_defender.is_on_court():
                 ddx = result.to_x - cutter_defender.x
                 ddy = result.to_y - cutter_defender.y
                 def_distance_to_cut = math.sqrt(ddx * ddx + ddy * ddy)
 
-                # Recovery ability: defender's speed vs cutter's drive_effectiveness
-                # Higher speed = better recovery; higher drive_effectiveness = harder to catch
-                recovery_prob = cutter_defender.defense.speed * (1.0 - player.offense.drive_effectiveness * 0.5)
+                if result.success:
+                    # Recovery ability: defender's speed vs cutter's drive_effectiveness
+                    recovery_prob = cutter_defender.defense.speed * (1.0 - player.offense.drive_effectiveness * 0.5)
 
-                if def_distance_to_cut > CONTEST_RADIUS:
-                    # Defender is too far to contest; try to recover
-                    if random.random() < recovery_prob:
-                        # Defender recovers fast enough — snap to contest radius
-                        ratio = CONTEST_RADIUS / def_distance_to_cut
+                    if def_distance_to_cut > CONTEST_RADIUS:
+                        if random.random() < recovery_prob:
+                            # Defender recovers — snap to contest radius behind cutter
+                            ratio = CONTEST_RADIUS / def_distance_to_cut
+                            defender_to_x = min(50.0, max(0.0, result.to_x - ddx * ratio))
+                            defender_to_y = min(47.0, max(0.0, result.to_y - ddy * ratio))
+                            cutter_defender.place(defender_to_x, defender_to_y)
+                            cut_outcome = "CONTESTED"
+                        else:
+                            cut_outcome = "OPEN"
+                    else:
+                        cut_outcome = "CONTESTED"
+                else:
+                    # Cut was covered — defender shadows the cutter to their new spot
+                    if def_distance_to_cut > 0.01:
+                        ratio = min(1.0, CONTEST_RADIUS / def_distance_to_cut)
                         defender_to_x = min(50.0, max(0.0, result.to_x - ddx * ratio))
                         defender_to_y = min(47.0, max(0.0, result.to_y - ddy * ratio))
                         cutter_defender.place(defender_to_x, defender_to_y)
-                        cut_outcome = "CONTESTED"
-                    else:
-                        # Defender can't recover in time — cutter gets separation
-                        cut_outcome = "OPEN"
-                else:
-                    # Already within contest radius
-                    cut_outcome = "CONTESTED"
 
             # Build detailed log entry
             description = result.description
@@ -438,7 +443,15 @@ def _step_off_ball_actions(
             # defender is tight (within 2.5× contest radius)
             prefer_on_ball = (dist_to_bh < 15.0 and bh_def_dist < CONTEST_RADIUS * 2.5)
 
+            screen_dist_limit = MAX_SCREEN_DIST
+
             if prefer_on_ball:
+                # Check if screener can actually reach the screen spot
+                if bh_defender and bh_defender.is_on_court():
+                    _sx, _sy = _screen_position(player, bh, bh_defender)
+                    if math.sqrt((_sx - player.x) ** 2 + (_sy - player.y) ** 2) > screen_dist_limit:
+                        continue
+
                 result = resolve_on_ball_screen(player, bh, bh_defender, all_defenders, state.tendencies)
                 if result.success and bh_defender is not None:
                     state.screened_defenders.add(bh_defender.name)
@@ -447,6 +460,23 @@ def _step_off_ball_actions(
                     {"text": result.description, "details": [], "style": "offball"}
                 )
                 player.place(result.final_x, result.final_y)
+
+                # Compute where the defender animates to when screened.
+                # On success: push defender 2 ft away from the screen spot (away from BH).
+                # On failure: defender stays put.
+                def_from_x = bh_defender.x if bh_defender else None
+                def_from_y = bh_defender.y if bh_defender else None
+                if result.success and bh_defender is not None:
+                    # Direction from screen spot away from ball handler
+                    sdx = result.screen_x - bh.x
+                    sdy = result.screen_y - bh.y
+                    sdist = math.sqrt(sdx * sdx + sdy * sdy) or 1.0
+                    def_to_x = min(50.0, max(0.0, result.screen_x + (sdx / sdist) * 2.0))
+                    def_to_y = min(47.0, max(0.0, result.screen_y + (sdy / sdist) * 2.0))
+                else:
+                    def_to_x = def_from_x
+                    def_to_y = def_from_y
+
                 state.off_ball_annotations.append({
                     "type":            "SCREEN",
                     "screener_name":   result.screener_name,
@@ -459,11 +489,11 @@ def _step_off_ball_actions(
                     "final_y":         result.final_y,
                     "roll_or_pop":     result.roll_or_pop,
                     "success":         result.success,
-                    "defender_name": bh_defender.name if bh_defender else None,
-                    "defender_from_x": bh_defender.x if bh_defender else None,
-                    "defender_from_y": bh_defender.y if bh_defender else None,
-                    "defender_to_x": bh_defender.x if bh_defender else None,
-                    "defender_to_y": bh_defender.y if bh_defender else None,
+                    "defender_name":   bh_defender.name if bh_defender else None,
+                    "defender_from_x": def_from_x,
+                    "defender_from_y": def_from_y,
+                    "defender_to_x":   def_to_x,
+                    "defender_to_y":   def_to_y,
                 })
 
             else:
@@ -481,6 +511,13 @@ def _step_off_ball_actions(
 
                 target          = min(off_ball_mates, key=_coverage)
                 target_defender = state.matchups.get(target)
+
+                # Bail if screener is too far to reach the screen spot
+                if target_defender and target_defender.is_on_court():
+                    _sx, _sy = _screen_position(player, target, target_defender)
+                    if math.sqrt((_sx - player.x) ** 2 + (_sy - player.y) ** 2) > screen_dist_limit:
+                        continue
+
                 result = resolve_off_ball_screen(player, target, target_defender)
 
                 if result.success and target_defender is not None:
@@ -490,6 +527,22 @@ def _step_off_ball_actions(
                     {"text": result.description, "details": [], "style": "offball"}
                 )
                 player.place(result.screen_x, result.screen_y)
+
+                # Compute where the target's defender animates to when screened.
+                # On success: push defender 2 ft away from the screen spot (away from target).
+                # On failure: defender stays put.
+                td_from_x = target_defender.x if target_defender else None
+                td_from_y = target_defender.y if target_defender else None
+                if result.success and target_defender is not None:
+                    sdx = result.screen_x - target.x
+                    sdy = result.screen_y - target.y
+                    sdist = math.sqrt(sdx * sdx + sdy * sdy) or 1.0
+                    td_to_x = min(50.0, max(0.0, result.screen_x + (sdx / sdist) * 2.0))
+                    td_to_y = min(47.0, max(0.0, result.screen_y + (sdy / sdist) * 2.0))
+                else:
+                    td_to_x = td_from_x
+                    td_to_y = td_from_y
+
                 state.off_ball_annotations.append({
                     "type":            "SCREEN",
                     "screener_name":   result.screener_name,
@@ -502,11 +555,11 @@ def _step_off_ball_actions(
                     "final_y":         result.screen_y,
                     "roll_or_pop":     None,
                     "success":         result.success,
-                    "defender_name": target_defender.name if target_defender else None,
-                    "defender_from_x": target_defender.x if target_defender else None,
-                    "defender_from_y": target_defender.y if target_defender else None,
-                    "defender_to_x": target_defender.x if target_defender else None,
-                    "defender_to_y": target_defender.y if target_defender else None,
+                    "defender_name":   target_defender.name if target_defender else None,
+                    "defender_from_x": td_from_x,
+                    "defender_from_y": td_from_y,
+                    "defender_to_x":   td_to_x,
+                    "defender_to_y":   td_to_y,
                 })
 
 

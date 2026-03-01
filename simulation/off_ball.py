@@ -38,6 +38,9 @@ _BASKET_Y = 5.25
 SCREEN_RANGE = 6.0      # ft — screener must be within this of the screen position
 # Radius within which a cut is checked for "getting open"
 CUT_CONTEST_RADIUS = 5.0  # ft — wider than shot contest; defender needs a head start
+# Max distance a non-center screener can travel to set a screen in one step.
+# Centers have no cap (they're big-body screeners who operate near the paint).
+MAX_SCREEN_DIST = 10.0  # ft — non-center limit
 
 # ── Off-ball tendency model ────────────────────────────────────────────────────
 
@@ -276,35 +279,17 @@ def _screen_position(
 
     Places the screener 1.5 ft in front of the defender (on the side facing
     the offensive target), blocking the defender's direct path to the target.
-    Movement is capped to MAX_STEP feet from screener's current position.
+    Distance feasibility is checked by the caller before invoking this.
     """
-    MAX_STEP = 10.0  # ft per step — screener can't travel more than 10 ft to set screen
-
     dx = target.x - target_defender.x
     dy = target.y - target_defender.y
     dist = math.sqrt(dx * dx + dy * dy)
     if dist < 0.01:
-        # Defender and target at same spot; push screener slightly away
         ideal_x = min(50.0, max(0.0, target_defender.x + 1.0))
         ideal_y = target_defender.y
     else:
-        # Position screener 1.5 ft in front of defender toward target
         ideal_x = min(50.0, max(0.0, target_defender.x + (dx / dist) * 1.5))
         ideal_y = min(47.0, max(0.0, target_defender.y + (dy / dist) * 1.5))
-
-    # Cap movement distance to MAX_STEP feet from screener's current position
-    sdx = ideal_x - screener.x
-    sdy = ideal_y - screener.y
-    screen_dist = math.sqrt(sdx * sdx + sdy * sdy)
-
-    if screen_dist > MAX_STEP:
-        # Move MAX_STEP feet toward the screen position
-        ratio = MAX_STEP / screen_dist
-        return (
-            min(50.0, max(0.0, screener.x + sdx * ratio)),
-            min(47.0, max(0.0, screener.y + sdy * ratio)),
-        )
-
     return ideal_x, ideal_y
 
 
