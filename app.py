@@ -460,12 +460,12 @@ with row1_right:
     else:
         st.caption("No actions yet — press ▶ Step.")
 
-    # ── PPV Dashboard (Replaced Tactical Analysis) ─────────────────────────────
-    st.markdown(f"**PPV Trajectory (Last {_PPP_WINDOW_SIZE} Possessions Moving Average)**")
+    # ── PPP Dashboard (Replaced Tactical Analysis) ─────────────────────────────
+    st.markdown(f"**PPP (Point Per Possession) Trajectory (Last {_PPP_WINDOW_SIZE} Possessions Moving Average)**")
     if len(st.session_state.ppp_trajectory) > 0:
         st.line_chart(st.session_state.ppp_trajectory, height=150)
     else:
-        st.caption("No possession history to calculate PPV.")
+        st.caption("No possession history to calculate PPP.")
 
 # ── Timeout handler ────────────────────────────────────────────────────────────
 if timeout_clicked:
