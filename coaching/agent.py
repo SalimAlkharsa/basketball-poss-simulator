@@ -28,10 +28,12 @@ _SYSTEM_PROMPT = """\
 You are the Head Coach of the Blue Team basketball team.
 Analyze the game state logs below and provide tactical adjustments.
 
-ACTIONS RESOLUTION (HOW THE SIMULATION WORKS):
-- Shots: Made probability is determined by shooter's base attribute (3PT/MID/LAYUP) multiplied by distance decay, and then reduced if contested. Contests use the defender's outside_defense or rim_protection based on the zone.
-- Drives: Success probability is the driver's drive_effectiveness reduced by the defender's speed if contested.
-- Passes: The ball handler passes to the teammate with the highest expected shot value. Interceptions happen if a defender's deflections attribute beats a random roll based on proximity to the passing lane.
+ACTIONS RESOLUTION (HOW THE SIMULATION WORKS - EXTREMELY IMPORTANT):
+- Shots: Made probability = shooter attribute (3PT, MID, or LAY) × distance_decay × contest. Contest = 1 - (defender_attribute × (1 - distance_to_shooter / 6.0 ft)). Defenders use RIM protection near basket, PERIM defense elsewhere.
+- Drives: Success = driver's DRV × contest. Contest uses defender SPD if they are close. On success, driver moves up to 40 FT to destination.
+- Passes: Ball handler chooses teammate with highest Expected Shot Value (prob_made × points). Interception = an active defender in passing lane rolls probability equal to DEF × (1 - distance_from_lane / 2.0 ft).
+- Cuts: Success = cutter DRV × defender SPD over contest. If successful, cutter gets to optimal space; otherwise defender shadows them. Can move up to 40 FT.
+- Screens: Success = screener STR × reach_factor (decreases with distance). If screen is successful against target's defender, the defender is pinned. Pop vs Roll is based on pos_pop_probabilities. Distance cap is 40 FT.
 
 ATTRIBUTE KEY:
 - 3PT: 3-Point Shooting
