@@ -241,6 +241,8 @@ if "auto_play" not in st.session_state:
     st.session_state.auto_play = False
 
 st.session_state.setdefault("possession_history", [])
+st.session_state.setdefault("backend_history", [])
+st.session_state.setdefault("n_backend_sims", 10)
 st.session_state.setdefault("coaching_cot", None)
 st.session_state.setdefault("coached_positions", {})
 st.session_state.setdefault("coaching_record", None)
@@ -275,8 +277,26 @@ def _snap_off_ball() -> dict:
     }
 
 
+def _run_backend_simulations(n: int, blue_team, red_team, coached_positions) -> list:
+    if n <= 0:
+        return []
+    logs = []
+    for _ in range(n):
+        p = new_possession(blue_team, red_team)
+        if coached_positions:
+            for name, (x, y) in coached_positions.items():
+                try:
+                    blue_team.player_by_name(name).place(x, y)
+                except (ValueError, AttributeError):
+                    pass
+        while not p.is_over:
+            p = step_possession(p, blue_team, red_team)
+        logs.append(record_possession(p))
+    return logs
+
+
 def handle_timeout(blue_team, red_team) -> None:
-    records   = st.session_state.possession_history
+    records   = st.session_state.possession_history + st.session_state.backend_history
     narrative = build_action_logs_text(records)
     agent     = get_coach()
 
@@ -350,6 +370,14 @@ possession = st.session_state.possession
 # ── Sidebar: debug + player zones ─────────────────────────────────────────────
 st.sidebar.title("Debug")
 debug_mode = st.sidebar.checkbox("Show Zones & Radii", value=False)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Simulation Options")
+st.session_state.n_backend_sims = st.sidebar.number_input(
+    "Backend Simulations per Play",
+    min_value=0, max_value=100,
+    value=st.session_state.n_backend_sims, step=1
+)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Player Zones")
@@ -506,11 +534,29 @@ if new_clicked:
         rec = record_possession(st.session_state.possession)
         st.session_state.possession_history.append(rec)
         
-        recent = st.session_state.possession_history[-_PPP_WINDOW_SIZE:]
-        ppp = sum(r.score for r in recent) / len(recent)
+        recent_fg = st.session_state.possession_history[-_PPP_WINDOW_SIZE:]
+        combined = recent_fg + st.session_state.backend_history
+        ppp = sum(r.score for r in combined) / len(combined)
         st.session_state.ppp_trajectory.append(ppp)
         
-        st.session_state.possession_history = recent
+        sims = st.session_state.n_backend_sims
+        if sims > 0:
+            with st.spinner(f"Running {sims} backend simulations..."):
+                b_logs = _run_backend_simulations(
+                    sims, blue_team, red_team, st.session_state.get("coached_positions", {})
+                )
+                for b_rec in b_logs:
+                    st.session_state.backend_history.append(b_rec)
+                    current_combined = recent_fg + st.session_state.backend_history
+                    windowed = current_combined[-(_PPP_WINDOW_SIZE * max(1, sims)):]
+                    ppp_val = sum(r.score for r in windowed) / len(windowed) if windowed else 0
+                    st.session_state.ppp_trajectory.append(ppp_val)
+            
+            max_backend = _PPP_WINDOW_SIZE * max(1, sims)
+            if len(st.session_state.backend_history) > max_backend:
+                st.session_state.backend_history = st.session_state.backend_history[-max_backend:]
+        
+        st.session_state.possession_history = recent_fg
     st.session_state.possession = new_possession(blue_team, red_team)
     # Re-apply coached positions over the defaults set by new_possession()
     for name, (x, y) in st.session_state.get("coached_positions", {}).items():
@@ -527,11 +573,29 @@ if st.session_state.auto_play:
         rec = record_possession(possession)
         st.session_state.possession_history.append(rec)
         
-        recent = st.session_state.possession_history[-_PPP_WINDOW_SIZE:]
-        ppp = sum(r.score for r in recent) / len(recent)
+        recent_fg = st.session_state.possession_history[-_PPP_WINDOW_SIZE:]
+        combined = recent_fg + st.session_state.backend_history
+        ppp = sum(r.score for r in combined) / len(combined)
         st.session_state.ppp_trajectory.append(ppp)
         
-        st.session_state.possession_history = recent
+        sims = st.session_state.n_backend_sims
+        if sims > 0:
+            b_logs = _run_backend_simulations(
+                sims, blue_team, red_team, st.session_state.get("coached_positions", {})
+            )
+            for b_rec in b_logs:
+                st.session_state.backend_history.append(b_rec)
+                current_combined = recent_fg + st.session_state.backend_history
+                # Get total of what would be the window, keeping backend bounded roughly
+                windowed = current_combined[-(_PPP_WINDOW_SIZE * max(1, sims)):]
+                ppp_val = sum(r.score for r in windowed) / len(windowed) if windowed else 0
+                st.session_state.ppp_trajectory.append(ppp_val)
+            
+            max_backend = _PPP_WINDOW_SIZE * max(1, sims)
+            if len(st.session_state.backend_history) > max_backend:
+                st.session_state.backend_history = st.session_state.backend_history[-max_backend:]
+        
+        st.session_state.possession_history = recent_fg
         st.session_state.possession = new_possession(blue_team, red_team)
         # Re-apply coached positions over the defaults set by new_possession()
         for name, (x, y) in st.session_state.get("coached_positions", {}).items():
@@ -580,11 +644,12 @@ if not step_clicked and not st.session_state.auto_play:
 st.markdown("---")
 st.subheader(" Control Pane")
 
-tab_matchups, tab_on_ball, tab_off_ball, tab_coach = st.tabs([
+tab_matchups, tab_on_ball, tab_off_ball, tab_coach, tab_sims = st.tabs([
     "⚔️ Matchups (Cards)",
     "🎯 On-Ball Tendencies",
     "🏃‍♂️ Off-Ball System",
     "🧠 Coach Intel",
+    "📄 Simulation Logs",
 ])
 
 # ── Matchups (Cards) ───────────────────────────────────────────────────────────
@@ -913,3 +978,38 @@ with tab_coach:
 
             with st.expander("Full Apply Log"):
                 st.code("\n".join(_rec["logs"]))
+
+# ── Simulation Logs Tab ────────────────────────────────────────────────────────
+with tab_sims:
+    st.caption("Logs from recent backend simulations.")
+    if not st.session_state.backend_history:
+        st.info("No backend simulations run yet. Enable 'Backend Simulations per Play' in the sidebar.")
+    else:
+        with st.container(height=600):
+            # Show the last 50 logs to avoid too much rendering
+            recent_b_logs = st.session_state.backend_history[-50:]
+            for i, rec in enumerate(reversed(recent_b_logs)):
+                idx = len(st.session_state.backend_history) - i
+                
+                outcome_labels = {
+                    "MADE_2": "✅ Made (2 pts)",
+                    "MADE_3": "✅ Made (3 pts)",
+                    "MISSED": "❌ Missed",
+                    "TURNOVER": "🔄 Turnover",
+                    "INTERCEPTED": "🔄 Intercepted",
+                }
+                out_str = outcome_labels.get(rec.outcome, rec.outcome)
+                
+                with st.expander(f"Simulation {idx} - {out_str} - {rec.steps} steps"):
+                    for j, entry in enumerate(rec.action_log, start=1):
+                        text    = entry.get("text", "") if isinstance(entry, dict) else str(entry)
+                        details = entry.get("details", []) if isinstance(entry, dict) else []
+                        style   = entry.get("style", "normal") if isinstance(entry, dict) else "normal"
+                        
+                        if style == "offball":
+                            st.markdown(f"*{j}. {text}*")
+                        else:
+                            st.markdown(f"**{j}.** {text}")
+                            
+                        for detail in details:
+                            st.caption(f"↳ {detail}")
