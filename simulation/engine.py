@@ -372,6 +372,11 @@ def _step_off_ball_actions(
 
             # Defender recovery: if cut was successful, determine if defender can still contest
             cut_outcome = "CONTESTED"  # default: defender stays contested
+            defender_from_x = cutter_defender.x if cutter_defender else None
+            defender_from_y = cutter_defender.y if cutter_defender else None
+            defender_to_x = defender_from_x
+            defender_to_y = defender_from_y
+
             if result.success and cutter_defender and cutter_defender.is_on_court():
                 # Calculate distance from defender's current position to cut destination
                 ddx = result.to_x - cutter_defender.x
@@ -387,10 +392,9 @@ def _step_off_ball_actions(
                     if random.random() < recovery_prob:
                         # Defender recovers fast enough — snap to contest radius
                         ratio = CONTEST_RADIUS / def_distance_to_cut
-                        cutter_defender.place(
-                            min(50.0, max(0.0, result.to_x - ddx * ratio)),
-                            min(47.0, max(0.0, result.to_y - ddy * ratio)),
-                        )
+                        defender_to_x = min(50.0, max(0.0, result.to_x - ddx * ratio))
+                        defender_to_y = min(47.0, max(0.0, result.to_y - ddy * ratio))
+                        cutter_defender.place(defender_to_x, defender_to_y)
                         cut_outcome = "CONTESTED"
                     else:
                         # Defender can't recover in time — cutter gets separation
@@ -416,6 +420,11 @@ def _step_off_ball_actions(
                 "to_y":        result.to_y,
                 "success":     result.success,
                 "outcome":     cut_outcome if result.success else "COVERED",
+                "defender_name": cutter_defender.name if cutter_defender else None,
+                "defender_from_x": defender_from_x,
+                "defender_from_y": defender_from_y,
+                "defender_to_x": defender_to_x,
+                "defender_to_y": defender_to_y,
             })
 
         elif action == "SCREEN":
@@ -450,6 +459,11 @@ def _step_off_ball_actions(
                     "final_y":         result.final_y,
                     "roll_or_pop":     result.roll_or_pop,
                     "success":         result.success,
+                    "defender_name": bh_defender.name if bh_defender else None,
+                    "defender_from_x": bh_defender.x if bh_defender else None,
+                    "defender_from_y": bh_defender.y if bh_defender else None,
+                    "defender_to_x": bh_defender.x if bh_defender else None,
+                    "defender_to_y": bh_defender.y if bh_defender else None,
                 })
 
             else:
@@ -488,6 +502,11 @@ def _step_off_ball_actions(
                     "final_y":         result.screen_y,
                     "roll_or_pop":     None,
                     "success":         result.success,
+                    "defender_name": target_defender.name if target_defender else None,
+                    "defender_from_x": target_defender.x if target_defender else None,
+                    "defender_from_y": target_defender.y if target_defender else None,
+                    "defender_to_x": target_defender.x if target_defender else None,
+                    "defender_to_y": target_defender.y if target_defender else None,
                 })
 
 

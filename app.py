@@ -133,6 +133,7 @@ def _run_off_ball_animation(
     """Animate cuts and screens *before* the ball-handler action.
 
     All off-ball player movements are played simultaneously over a short clip.
+    Also animates any defenders who need to reposition.
     Player positions are temporarily set back to their 'from' coords at the
     start of the animation, interpolated to their 'to' coords, then left at
     the 'to' values (which matches the model state after step_possession).
@@ -142,13 +143,27 @@ def _run_off_ball_animation(
 
     player_map = {p.name: p for p in all_players}
 
-    # Collect (player, from_x, from_y, to_x, to_y) for every mover
+    # Collect (player, from_x, from_y, to_x, to_y) for every off-ball mover
+    # and separate list of (defender, from_x, from_y, to_x, to_y) for defenders
     movers: list[tuple] = []
+    defender_movers: list[tuple] = []
+
     for ann in off_ball_annotations:
         if ann["type"] == "CUT":
             p = player_map.get(ann["player_name"])
             if p:
                 movers.append((p, ann["from_x"], ann["from_y"], ann["to_x"], ann["to_y"]))
+            # Add defender movement for cuts
+            if ann.get("defender_name"):
+                defender = player_map.get(ann["defender_name"])
+                if defender:
+                    defender_movers.append((
+                        defender,
+                        ann.get("defender_from_x", defender.x),
+                        ann.get("defender_from_y", defender.y),
+                        ann.get("defender_to_x", defender.x),
+                        ann.get("defender_to_y", defender.y),
+                    ))
         elif ann["type"] == "SCREEN":
             p = player_map.get(ann["screener_name"])
             if p:
@@ -157,14 +172,31 @@ def _run_off_ball_animation(
                     ann["screener_from_x"], ann["screener_from_y"],
                     ann["final_x"],         ann["final_y"],
                 ))
+            # Add defender movement for screens
+            if ann.get("defender_name"):
+                defender = player_map.get(ann["defender_name"])
+                if defender:
+                    defender_movers.append((
+                        defender,
+                        ann.get("defender_from_x", defender.x),
+                        ann.get("defender_from_y", defender.y),
+                        ann.get("defender_to_x", defender.x),
+                        ann.get("defender_to_y", defender.y),
+                    ))
 
     if not movers:
         return
 
-    # Temporarily set all movers back to their 'from' positions
+    # Temporarily set all movers and defender-movers back to their 'from' positions
     final_positions = {p.name: (p.x, p.y) for p, *_ in movers}
+    for defender, *_ in defender_movers:
+        if defender.name not in final_positions:
+            final_positions[defender.name] = (defender.x, defender.y)
+
     for p, fx, fy, tx, ty in movers:
         p.x, p.y = fx, fy
+    for d, fx, fy, tx, ty in defender_movers:
+        d.x, d.y = fx, fy
 
     # Shorter clip for off-ball (~0.5 s)
     t_vals = np.linspace(0.0, 1.0, _N_FRAMES // 2)
@@ -172,6 +204,9 @@ def _run_off_ball_animation(
         for p, fx, fy, tx, ty in movers:
             p.x = fx + (tx - fx) * ti
             p.y = fy + (ty - fy) * ti
+        for d, fx, fy, tx, ty in defender_movers:
+            d.x = fx + (tx - fx) * ti
+            d.y = fy + (ty - fy) * ti
         fig = draw_half_court(debug=debug_mode, players=all_players, ball_pos=ball_pos)
         court_placeholder.pyplot(fig, use_container_width=True)
         plt.close(fig)
@@ -180,6 +215,8 @@ def _run_off_ball_animation(
     # Restore to final model positions (already at 'to' thanks to step_possession)
     for p, *_ in movers:
         p.x, p.y = final_positions[p.name]
+    for d, *_ in defender_movers:
+        d.x, d.y = final_positions[d.name]
 
 
 
@@ -267,18 +304,10 @@ with row1_right:
             "INTERCEPTED": ("🔄", "Pass intercepted"),
         }
         icon, label = outcome_labels.get(possession.outcome, ("❓", possession.outcome))
-        status_html = f"""
-        <div style='display:flex; gap:16px; flex-wrap:wrap; padding:6px 0 8px 0;'>
-          <div style='background:#1a1a2e; border-radius:6px; padding:6px 12px; min-width:90px;'>
-            <div style='font-size:9px; color:#666; text-transform:uppercase; letter-spacing:.06em;'>Result</div>
-            <div style='font-size:13px; color:#eee; font-weight:600;'>{icon} {label}</div>
-          </div>
-          <div style='background:#1a1a2e; border-radius:6px; padding:6px 12px; min-width:60px;'>
-            <div style='font-size:9px; color:#666; text-transform:uppercase; letter-spacing:.06em;'>Score</div>
-            <div style='font-size:13px; color:#4caf50; font-weight:600;'>+{possession.score} pts</div>
-          </div>
-        </div>
-        """
+        
+        c_res, c_score = st.columns(2)
+        c_res.metric("Result", f"{icon} {label}")
+        c_score.metric("Score", f"+{possession.score} pts")
     else:
         bh = possession.ball_handler
         defender = possession.matchups.get(bh)
@@ -290,62 +319,37 @@ with row1_right:
         zone_str  = bh.zone.value if bh.zone else "—"
         def_str   = f"{defender.name} ({dist_desc})" if defender else "None"
         steps_str = str(len(possession.action_log))
-        status_html = f"""
-        <div style='display:flex; gap:10px; flex-wrap:wrap; padding:6px 0 8px 0;'>
-          <div style='background:#1a1a2e; border-radius:6px; padding:5px 10px; min-width:80px;'>
-            <div style='font-size:9px; color:#666; text-transform:uppercase; letter-spacing:.06em;'>Ball</div>
-            <div style='font-size:12px; color:#64b5f6; font-weight:600; white-space:nowrap;'>{bh.name}</div>
-          </div>
-          <div style='background:#1a1a2e; border-radius:6px; padding:5px 10px; min-width:80px;'>
-            <div style='font-size:9px; color:#666; text-transform:uppercase; letter-spacing:.06em;'>Zone</div>
-            <div style='font-size:12px; color:#eee; font-weight:600; white-space:nowrap;'>{zone_str}</div>
-          </div>
-          <div style='background:#1a1a2e; border-radius:6px; padding:5px 10px; min-width:110px;'>
-            <div style='font-size:9px; color:#666; text-transform:uppercase; letter-spacing:.06em;'>Defender</div>
-            <div style='font-size:12px; color:#ef9a9a; font-weight:600; white-space:nowrap;'>{def_str}</div>
-          </div>
-          <div style='background:#1a1a2e; border-radius:6px; padding:5px 10px; min-width:50px;'>
-            <div style='font-size:9px; color:#666; text-transform:uppercase; letter-spacing:.06em;'>Steps</div>
-            <div style='font-size:12px; color:#eee; font-weight:600;'>{steps_str}</div>
-          </div>
-        </div>
-        """
-    st.markdown(status_html, unsafe_allow_html=True)
+        
+        c_ball, c_zone, c_def, c_steps = st.columns(4)
+        c_ball.metric("Ball", bh.name)
+        c_zone.metric("Zone", zone_str)
+        c_def.metric("Defender", def_str)
+        c_steps.metric("Steps", steps_str)
 
     # ── Action log in scrollable container ────────────────────────────────────
     st.markdown("**Action Log**")
     if possession.action_log:
-        parts = []
-        for i, entry in enumerate(possession.action_log, start=1):
-            if isinstance(entry, dict):
-                text    = entry.get("text", "")
-                details = entry.get("details", [])
-                style   = entry.get("style", "normal")
-            else:
-                text    = entry
-                details = []
-                style   = "normal"
-            color = "#8a8a5c" if style == "offball" else "#bbb"
-            parts.append(
-                f"<div style='font-size:10px; padding:1px 0; color:{color};'>"
-                f"<span style='color:#555; margin-right:5px;'>{i}.</span>{text}</div>"
-            )
-            for detail in details:
-                parts.append(
-                    f"<div style='font-size:9px; padding:0 0 1px 14px; color:#555;'>"
-                    f"<span style='color:#3a3a3a; margin-right:4px;'>&#x21B3;</span>{detail}</div>"
-                )
-        log_html = "".join(parts)
-        st.markdown(
-            f"<div style='height:260px; overflow-y:auto; border:1px solid #2a2a2a; "
-            f"border-radius:4px; padding:6px 8px; background:#111;'>{log_html}</div>",
-            unsafe_allow_html=True,
-        )
+        with st.container(height=260):
+            for i, entry in enumerate(possession.action_log, start=1):
+                if isinstance(entry, dict):
+                    text    = entry.get("text", "")
+                    details = entry.get("details", [])
+                    style   = entry.get("style", "normal")
+                else:
+                    text    = entry
+                    details = []
+                    style   = "normal"
+                
+                # We can visually distinguish off-ball actions softly with italics
+                if style == "offball":
+                    st.markdown(f"*{i}. {text}*")
+                else:
+                    st.markdown(f"**{i}.** {text}")
+                    
+                for detail in details:
+                    st.caption(f"↳ {detail}")
     else:
-        st.markdown(
-            "<div style='font-size:10px; color:#555;'>No actions yet — press ▶ Step.</div>",
-            unsafe_allow_html=True,
-        )
+        st.caption("No actions yet — press ▶ Step.")
 
 # ── Step: animate then commit ──────────────────────────────────────────────────
 if step_clicked and not possession.is_over:
@@ -422,119 +426,177 @@ if not step_clicked and not st.session_state.auto_play:
     court_placeholder.pyplot(fig, use_container_width=True)
     plt.close(fig)
 
+# ── Command Control Pane ───────────────────────────────────────────────────────
+st.markdown("---")
+st.subheader(" Control Pane")
+
+tab_matchups, tab_on_ball, tab_off_ball = st.tabs([
+    "⚔️ Matchups (Cards)", 
+    "🎯 On-Ball Tendencies", 
+    "🏃‍♂️ Off-Ball System"
+])
+
+# ── Matchups (Cards) ───────────────────────────────────────────────────────────
+with tab_matchups:
+    st.caption("Attributes for current on-court matchups (Blue Offense vs Red Defense).")
+    cols = st.columns(5)
+    for i, player in enumerate(blue_team.players):
+        defender = possession.matchups.get(player)
+        is_bh = player.name == possession.ball_handler.name
+        
+        with cols[i]:
+            with st.container(border=True):
+                # Offensive Header
+                bh_icon = "🏀 " if is_bh else ""
+                st.markdown(f"<div style='text-align:center; font-size:16px; font-weight:700; color:#64b5f6;'>{bh_icon}{player.name}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center; font-size:11px; color:#aaa; margin-bottom:8px;'>{player.position.value} • Offense</div>", unsafe_allow_html=True)
+                
+                # Offensive Stats
+                st.markdown(f"""
+                <div style='font-size:11px; color:#eee;'>
+                    <div style='display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:2px;'><span>3PT</span><span style='color:#81c784;'>{player.offense.three_pt_shooting:.2f}</span></div>
+                    <div style='display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:2px;'><span>MID</span><span style='color:#81c784;'>{player.offense.mid_range_shooting:.2f}</span></div>
+                    <div style='display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:2px;'><span>DRV</span><span style='color:#81c784;'>{player.offense.drive_effectiveness:.2f}</span></div>
+                    <div style='display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:2px;'><span>PAS</span><span style='color:#81c784;'>{player.offense.passing:.2f}</span></div>
+                    <div style='display:flex; justify-content:space-between; padding-top:2px;'><span>LAY</span><span style='color:#81c784;'>{player.offense.layup:.2f}</span></div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("<div style='text-align:center; font-size:14px; font-weight:900; color:#555; margin:12px 0;'>VS</div>", unsafe_allow_html=True)
+                
+                # Defensive Header
+                if defender:
+                    st.markdown(f"<div style='text-align:center; font-size:16px; font-weight:700; color:#ef9a9a;'>{defender.name}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:center; font-size:11px; color:#aaa; margin-bottom:8px;'>{defender.position.value} • Defense</div>", unsafe_allow_html=True)
+                    
+                    # Defensive Stats
+                    st.markdown(f"""
+                    <div style='font-size:11px; color:#eee;'>
+                        <div style='display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:2px;'><span>PERIM</span><span style='color:#e57373;'>{defender.defense.outside_defense:.2f}</span></div>
+                        <div style='display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:2px;'><span>RIM PROT</span><span style='color:#e57373;'>{defender.defense.rim_protection:.2f}</span></div>
+                        <div style='display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:2px;'><span>SPEED</span><span style='color:#e57373;'>{defender.defense.speed:.2f}</span></div>
+                        <div style='display:flex; justify-content:space-between; padding-top:2px;'><span>DEFLECT</span><span style='color:#e57373;'>{defender.defense.deflections:.2f}</span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='text-align:center; color:#888; font-size:12px; padding:20px 0;'>None</div>", unsafe_allow_html=True)
+
+# ── On-Ball Tendencies ──────────────────────────────────────────────────────────
+with tab_on_ball:
+    st.caption("Adjust player action probabilities directly. Values automatically normalize to 1.0. The table on the right shows the final effective weights against current defender.")
+    col_edit, col_view = st.columns([1.2, 1])
+    
+    with col_edit:
+        st.markdown("**Control Panel (Editable)**")
+        # List of dicts for editor
+        tendencies_data = []
+        for p in blue_team.players:
+            tendencies_data.append({
+                "Player": p.name,
+                "3PT": float(p.tendencies.tendency_three),
+                "MID": float(p.tendencies.tendency_mid),
+                "DRV": float(p.tendencies.tendency_drive),
+                "PAS": float(p.tendencies.tendency_pass),
+                "LAY": float(p.tendencies.tendency_layup),
+            })
+        
+        edited_tendencies = st.data_editor(
+            tendencies_data,
+            hide_index=True,
+            disabled=["Player"],
+            use_container_width=True,
+            key="on_ball_editor"
+        )
+        
+        # Apply normalization back to players
+        for i, row in enumerate(edited_tendencies):
+            p = next(pl for pl in blue_team.players if pl.name == row["Player"])
+            v3 = max(0.0, float(row["3PT"]))
+            vm = max(0.0, float(row["MID"]))
+            vd = max(0.0, float(row["DRV"]))
+            vp = max(0.0, float(row["PAS"]))
+            vl = max(0.0, float(row["LAY"]))
+            
+            tot = v3 + vm + vd + vp + vl
+            if tot > 0:
+                p.tendencies.tendency_three = v3 / tot
+                p.tendencies.tendency_mid   = vm / tot
+                p.tendencies.tendency_drive = vd / tot
+                p.tendencies.tendency_pass  = vp / tot
+                p.tendencies.tendency_layup = vl / tot
+            elif tot == 0:
+                p.tendencies.tendency_pass  = 1.0
+                p.tendencies.tendency_three = 0.0
+                p.tendencies.tendency_mid   = 0.0
+                p.tendencies.tendency_drive = 0.0
+                p.tendencies.tendency_layup = 0.0
+                
+    with col_view:
+        st.markdown("**Live Effective Weights**")
+        bh_name = possession.ball_handler.name
+        labels   = ["3PT", "MID", "DRV", "PASS", "LAY"]
+        header_cells = "".join(f"<th style='padding:3px 6px; font-size:9px; color:#666; text-align:right; font-weight:normal; text-transform:uppercase; letter-spacing:.05em;'>{l}</th>" for l in labels)
+        
+        rows_html = (
+            f"<table style='border-collapse:collapse; width:100%; font-size:10px;'>"
+            f"<thead><tr><th style='padding:3px 6px; font-size:9px; color:#666; text-align:left; font-weight:normal;'>Player</th>{header_cells}</tr></thead><tbody>"
+        )
+        for player in blue_team.players:
+            raw   = player.tendencies.as_weights()
+            eff   = effective_weights(player, possession.matchups.get(player))
+            is_bh = player.name == bh_name
+            row_bg     = "#1a2540" if is_bh else "transparent"
+            name_color = "#64b5f6" if is_bh else "#999"
+            rows_html += f"<tr style='background:{row_bg}; border-bottom:1px solid #1e1e1e;'>"
+            rows_html += f"<td style='padding:3px 6px; color:{name_color}; white-space:nowrap;'>{'● ' if is_bh else ''}{player.name} ({player.position.value})</td>"
+            
+            for rw, ew in zip(raw, eff):
+                diff  = ew - rw
+                val_color = "#81c784" if diff > 0.005 else ("#e57373" if diff < -0.005 else "#aaa")
+                rows_html += f"<td style='padding:3px 6px; text-align:right; color:{val_color}; font-weight:{'600' if is_bh else '400'};'>{ew:.0%}</td>"
+            rows_html += "</tr>"
+        rows_html += "</tbody></table>"
+        st.markdown(rows_html, unsafe_allow_html=True)
+
+
+# ── Off-Ball Tendencies ─────────────────────────────────────────────────────────
+with tab_off_ball:
+    st.caption("Edit system-wide off-ball movement probabilities.")
+    col_base, col_table = st.columns([1, 2.2])
+    
+    with col_base:
+        st.markdown("**Base Weights**")
+        st.number_input("Base Stay weight", min_value=0.0, max_value=2.0, step=0.05, key="tend_base_stay", help="Higher value means players are more likely to stay in place.")
+        
+    with col_table:
+        st.markdown("**Position Specifics (Editable)**")
+        
+        off_ball_data = []
+        for _pos in _POSITIONS:
+            off_ball_data.append({
+                "Position": _pos,
+                "Cut": float(st.session_state.get(f"tend_cut_{_pos}", TENDENCIES.cut_factors[_pos])),
+                "Screen": float(st.session_state.get(f"tend_screen_{_pos}", TENDENCIES.screen_factors[_pos])),
+                "Pop": float(st.session_state.get(f"tend_pop_{_pos}", TENDENCIES.pop_probabilities[_pos])),
+            })
+            
+        edited_off_ball = st.data_editor(
+            off_ball_data,
+            hide_index=True,
+            disabled=["Position"],
+            use_container_width=True,
+            key="off_ball_editor"
+        )
+        
+        for row in edited_off_ball:
+            _pos = row["Position"]
+            st.session_state[f"tend_cut_{_pos}"]    = max(0.0, float(row["Cut"]))
+            st.session_state[f"tend_screen_{_pos}"] = max(0.0, float(row["Screen"]))
+            st.session_state[f"tend_pop_{_pos}"]    = max(0.0, float(row["Pop"]))
+
 # ── Sync any edited off-ball tendency values → TENDENCIES singleton ───────────
 TENDENCIES.base_stay = st.session_state.get("tend_base_stay", TENDENCIES.base_stay)
 for _pos in _POSITIONS:
     TENDENCIES.cut_factors[_pos]       = st.session_state.get(f"tend_cut_{_pos}",    TENDENCIES.cut_factors[_pos])
     TENDENCIES.screen_factors[_pos]    = st.session_state.get(f"tend_screen_{_pos}", TENDENCIES.screen_factors[_pos])
     TENDENCIES.pop_probabilities[_pos] = st.session_state.get(f"tend_pop_{_pos}",    TENDENCIES.pop_probabilities[_pos])
-
-# ── Bottom row: full-width — player tendencies + off-ball tendency editor ──────
-st.markdown("---")
-b_left, b_right = st.columns(2)
-
-# ── Bottom-left: per-player on-ball tendencies table ──────────────────────────
-with b_left:
-    st.subheader("On-Ball Tendencies")
-    bh_name = possession.ball_handler.name
-    labels   = ["3PT", "MID", "DRV", "PASS", "LAY"]
-
-    # Header
-    header_cells = "".join(
-        f"<th style='padding:3px 6px; font-size:9px; color:#666; text-align:right; "
-        f"font-weight:normal; text-transform:uppercase; letter-spacing:.05em;'>{l}</th>"
-        for l in labels
-    )
-    rows_html = (
-        f"<table style='border-collapse:collapse; width:100%; font-size:10px;'>"
-        f"<thead><tr>"
-        f"<th style='padding:3px 6px; font-size:9px; color:#666; text-align:left; "
-        f"font-weight:normal;'>Player</th>{header_cells}"
-        f"</tr></thead><tbody>"
-    )
-    for player in blue_team.players:
-        raw   = player.tendencies.as_weights()
-        eff   = effective_weights(player, possession.matchups.get(player))
-        is_bh = player.name == bh_name
-        row_bg    = "#1a2540" if is_bh else "transparent"
-        name_color = "#64b5f6" if is_bh else "#999"
-        rows_html += (
-            f"<tr style='background:{row_bg}; border-bottom:1px solid #1e1e1e;'>"
-            f"<td style='padding:3px 6px; color:{name_color}; white-space:nowrap;'>"
-            f"{'● ' if is_bh else ''}{player.name} ({player.position.value})</td>"
-        )
-        for rw, ew in zip(raw, eff):
-            diff  = ew - rw
-            if abs(diff) > 0.005:
-                val_color = "#81c784" if diff > 0 else "#e57373"
-            else:
-                val_color = "#aaa"
-            rows_html += (
-                f"<td style='padding:3px 6px; text-align:right; color:{val_color}; "
-                f"font-weight:{'600' if is_bh else '400'};'>{ew:.0%}</td>"
-            )
-        rows_html += "</tr>"
-    rows_html += "</tbody></table>"
-    st.markdown(rows_html, unsafe_allow_html=True)
-
-# ── Bottom-right: off-ball tendency editor ─────────────────────────────────────
-with b_right:
-    st.subheader("Off-Ball Tendencies")
-    st.caption("Edit values to adjust agent behaviour in real-time.")
-
-    # base_stay
-    st.markdown("<span style='font-size:11px; color:#888;'>Base Stay weight</span>",
-                unsafe_allow_html=True)
-    st.number_input(
-        "base_stay", min_value=0.0, max_value=2.0, step=0.05,
-        key="tend_base_stay", label_visibility="collapsed",
-    )
-
-    # Position tables: cut / screen / pop
-    col_labels = ["Position", "Cut", "Screen", "Pop"]
-    hdr = "".join(
-        f"<th style='padding:2px 6px; font-size:9px; color:#666; font-weight:normal; "
-        f"text-transform:uppercase; letter-spacing:.05em; text-align:{'left' if i==0 else 'center'};'>"
-        f"{lbl}</th>"
-        for i, lbl in enumerate(col_labels)
-    )
-    tb_html = (
-        f"<table style='border-collapse:collapse; width:100%; font-size:10px; margin-top:6px;'>"
-        f"<thead><tr>{hdr}</tr></thead><tbody>"
-    )
-    for _pos in _POSITIONS:
-        tb_html += (
-            f"<tr style='border-bottom:1px solid #1e1e1e;'>"
-            f"<td style='padding:2px 6px; color:#aaa; width:40px;'>{_pos}</td>"
-            f"<td style='padding:2px 6px; color:#4caf50; text-align:center; width:46px;'>"
-            f"{st.session_state[f'tend_cut_{_pos}']:.2f}</td>"
-            f"<td style='padding:2px 6px; color:#ff9800; text-align:center; width:46px;'>"
-            f"{st.session_state[f'tend_screen_{_pos}']:.2f}</td>"
-            f"<td style='padding:2px 6px; color:#64b5f6; text-align:center; width:46px;'>"
-            f"{st.session_state[f'tend_pop_{_pos}']:.2f}</td>"
-            f"</tr>"
-        )
-    tb_html += "</tbody></table>"
-    st.markdown(tb_html, unsafe_allow_html=True)
-
-    # Number input controls below the table
-    st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
-    st.caption("Adjust by position:")
-    for _pos in _POSITIONS:
-        c1, c2, c3, c4 = st.columns([1, 3, 3, 3])
-        c1.markdown(
-            f"<div style='font-size:11px; color:#aaa; padding-top:6px;'>{_pos}</div>",
-            unsafe_allow_html=True,
-        )
-        c2.number_input(
-            f"Cut {_pos}", min_value=0.0, max_value=1.5, step=0.02,
-            key=f"tend_cut_{_pos}", label_visibility="collapsed",
-        )
-        c3.number_input(
-            f"Screen {_pos}", min_value=0.0, max_value=1.5, step=0.02,
-            key=f"tend_screen_{_pos}", label_visibility="collapsed",
-        )
-        c4.number_input(
-            f"Pop {_pos}", min_value=0.0, max_value=1.0, step=0.05,
-            key=f"tend_pop_{_pos}", label_visibility="collapsed",
-        )
