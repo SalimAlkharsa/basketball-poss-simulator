@@ -144,3 +144,21 @@ def build_narrative_delta(records: list[PossessionRecord]) -> str:
         parts.append(f"Total turnovers across session: {total_to}.")
 
     return " ".join(parts)
+
+
+def build_action_logs_text(records: list[PossessionRecord]) -> str:
+    """
+    Format the raw action logs from recent possessions to feed into the LLM.
+    """
+    if not records:
+        return "No possession history yet."
+
+    lines = []
+    for i, rec in enumerate(records, start=1):
+        lines.append(f"Possession {i} (Outcome: {rec.outcome}, Score: {rec.score}):")
+        for log in rec.action_log:
+            text = log.get("text", "") if isinstance(log, dict) else str(log)
+            lines.append(f" - {text}")
+        lines.append("")
+    
+    return "\n".join(lines).strip()

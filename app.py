@@ -15,7 +15,7 @@ from data.loader import load_teams
 from simulation.engine import new_possession, step_possession, effective_weights
 from simulation.off_ball import OffBallTendencies, TENDENCIES
 from simulation.utils import player_dist
-from coaching.analytics import build_narrative_delta, record_possession
+from coaching.analytics import build_narrative_delta, record_possession, build_action_logs_text
 from coaching.agent import CoachingAgent
 from coaching.controller import NormalizationController
 
@@ -275,7 +275,7 @@ def _snap_off_ball() -> dict:
 
 def handle_timeout(blue_team, red_team) -> None:
     records   = st.session_state.possession_history
-    narrative = build_narrative_delta(records)
+    narrative = build_action_logs_text(records)
     agent     = get_coach()
 
     before_tendencies = _snap_tendencies(blue_team.players)
@@ -289,20 +289,23 @@ def handle_timeout(blue_team, red_team) -> None:
     error_trace       = None
 
     with st.spinner("Head Coach calling timeout..."):
-        try:
-            cot_text, decision, prompt_data = agent.call(narrative, blue_team.players)
-            st.session_state.coaching_cot = cot_text
-        except Exception as e:
-            error_trace = traceback.format_exc()
-            st.error(f"Coach agent error: {e}")
-
-    if decision is not None:
-        try:
-            controller = NormalizationController(blue_team.players)
-            logs, coached_positions = controller.apply(decision)
-        except Exception as e:
-            error_trace = (error_trace or "") + "\n\napply() error:\n" + traceback.format_exc()
-            st.error(f"Controller apply error: {e}")
+        for attempt in range(3):
+            try:
+                cot_text, decision, prompt_data = agent.call(
+                    narrative, 
+                    blue_team.players,
+                    opponent_players=red_team.players
+                )
+                controller = NormalizationController(blue_team.players)
+                logs, coached_positions = controller.apply(decision)
+                
+                st.session_state.coaching_cot = cot_text
+                error_trace = None # Success
+                break
+            except Exception as e:
+                error_trace = traceback.format_exc()
+                if attempt == 2:
+                    st.error(f"Coach agent error after 3 attempts: {e}")
 
     after_tendencies = _snap_tendencies(blue_team.players)
     after_off_ball   = _snap_off_ball()
@@ -847,8 +850,8 @@ with tab_coach:
                 st.subheader("User Prompt (Game Narrative & State)")
                 st.code(_rec["prompt_data"]["user"], language="markdown")
             else:
-                st.subheader("Game Narrative")
-                st.markdown(_rec["narrative"] or "_No narrative generated._")
+                st.subheader("Game Logs")
+                st.markdown(_rec["narrative"] or "_No logic generated._")
 
             st.subheader("On-Ball Tendencies (before timeout)")
             _bt = _rec["before_tendencies"]

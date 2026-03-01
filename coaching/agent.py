@@ -26,13 +26,29 @@ if TYPE_CHECKING:
 
 _SYSTEM_PROMPT = """\
 You are the Head Coach of the Blue Team basketball team.
-Analyze the game state below and provide tactical adjustments.
+Analyze the game state logs below and provide tactical adjustments.
+
+ACTIONS RESOLUTION (HOW THE SIMULATION WORKS):
+- Shots: Made probability is determined by shooter's base attribute (3PT/MID/LAYUP) multiplied by distance decay, and then reduced if contested. Contests use the defender's outside_defense or rim_protection based on the zone.
+- Drives: Success probability is the driver's drive_effectiveness reduced by the defender's speed if contested.
+- Passes: The ball handler passes to the teammate with the highest expected shot value. Interceptions happen if a defender's deflections attribute beats a random roll based on proximity to the passing lane.
+
+ATTRIBUTE KEY:
+- 3PT: 3-Point Shooting
+- MID: Mid-Range Shooting
+- DRV: Drive Effectiveness
+- PAS: Passing Ability
+- LAY: Layup Finishing
+- PERIM: Perimeter / Outside Defense
+- RIM: Rim Protection
+- SPD: Defensive Speed (On-Ball)
+- DEF: Deflections / Passing Lane Interceptions
 
 You MUST respond in two clearly separated sections:
 
 ## TACTICAL ANALYSIS
 [Your verbal reasoning: which players are struggling, why, and what to change.
-Reference the strategy document and specific game trends. Think step-by-step.]
+Think step-by-step based on the action logs.]
 
 ## DATA_START
 (no code fences — raw JSON only)
@@ -75,6 +91,22 @@ IMPORTANT:
 - Write ## TACTICAL ANALYSIS first. Never output JSON before your analysis.
 - Keep the TACTICAL ANALYSIS concise (under 400 words). You MUST always reach the ## DATA_START block.
 """
+
+def _build_attributes_table(players: list["Player"]) -> str:
+    """Build a plain-text grid of current player attributes."""
+    header = f"{'Player':<20} | {'3PT':>4} {'MID':>4} {'DRV':>4} {'PAS':>4} {'LAY':>4} | {'PERIM':>5} {'RIM':>4} {'SPD':>4} {'DEF':>4}"
+    sep = "-" * len(header)
+    rows = [header, sep]
+    for p in players:
+        o = p.offense
+        d = p.defense
+        rows.append(
+            f"{p.name + ' (' + p.position.value + ')':<20} "
+            f"| {o.three_pt_shooting:>4.2f} {o.mid_range_shooting:>4.2f} {o.drive_effectiveness:>4.2f} {o.passing:>4.2f} {o.layup:>4.2f} "
+            f"| {d.outside_defense:>5.2f} {d.rim_protection:>4.2f} {d.speed:>4.2f} {d.deflections:>4.2f}"
+        )
+    return "\n".join(rows)
+
 
 
 def _build_tendencies_table(players: list["Player"]) -> str:
@@ -132,12 +164,13 @@ class CoachingAgent:
         self,
         narrative: str,
         players: list["Player"],
+        opponent_players: list["Player"],
     ) -> tuple[str, CoachingDecision, dict[str, str]]:
         """
         Returns (full_cot_text, parsed_decision, prompt_data).
         Raises ValueError if JSON block is missing or malformed.
         """
-        messages, prompt_data = self._build_messages(narrative, players)
+        messages, prompt_data = self._build_messages(narrative, players, opponent_players)
         response = self.client.chat.complete(
             model=self.model,
             messages=messages,
@@ -152,14 +185,18 @@ class CoachingAgent:
         self,
         narrative: str,
         players: list["Player"],
+        opponent_players: list["Player"],
     ) -> tuple[list[dict], dict[str, str]]:
+        attributes_table = _build_attributes_table(players)
+        opponent_attributes_table = _build_attributes_table(opponent_players)
         tendencies_table = _build_tendencies_table(players)
         off_ball_section = _build_off_ball_section()
         positioning_section = _build_positioning_section(players)
 
         user_content = (
-            f"=== GAME NARRATIVE ===\n{narrative}\n\n"
-            f"=== STRATEGY ===\n{self.strategy}\n\n"
+            f"=== GAME ACTION LOGS ===\n{narrative}\n\n"
+            f"=== OUR PLAYER ATTRIBUTES ===\n{attributes_table}\n\n"
+            f"=== OPPONENT PLAYER ATTRIBUTES ===\n{opponent_attributes_table}\n\n"
             f"=== CURRENT ON-BALL TENDENCIES ===\n{tendencies_table}\n\n"
             f"=== CURRENT OFF-BALL TENDENCIES ===\n{off_ball_section}\n\n"
             f"=== CURRENT POSITIONING ===\n{positioning_section}"
