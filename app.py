@@ -1,4 +1,8 @@
+import os
 import time
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import numpy as np
 import streamlit as st
@@ -9,6 +13,9 @@ from data.loader import load_teams
 from simulation.engine import new_possession, step_possession, effective_weights
 from simulation.off_ball import OffBallTendencies, TENDENCIES
 from simulation.utils import player_dist
+from coaching.analytics import build_narrative_delta, record_possession
+from coaching.agent import CoachingAgent
+from coaching.controller import NormalizationController
 
 st.set_page_config(
     page_title="Basketball Possession Simulator",
@@ -230,6 +237,41 @@ if "blue_team" not in st.session_state:
 if "auto_play" not in st.session_state:
     st.session_state.auto_play = False
 
+st.session_state.setdefault("possession_history", [])
+st.session_state.setdefault("coaching_cot", None)
+st.session_state.setdefault("coached_positions", {})
+
+
+@st.cache_resource
+def get_coach() -> CoachingAgent:
+    api_key = os.environ.get("API_MISTRAL", "")
+    return CoachingAgent(api_key=api_key)
+
+
+def handle_timeout(blue_team, red_team) -> None:
+    records = st.session_state.possession_history
+    narrative = build_narrative_delta(records)
+    agent = get_coach()
+
+    with st.spinner("Head Coach calling timeout..."):
+        try:
+            cot_text, decision = agent.call(narrative, blue_team.players)
+            st.session_state.coaching_cot = cot_text
+        except Exception as e:
+            st.error(f"Coach agent error: {e}")
+            return
+
+    controller = NormalizationController(blue_team.players)
+    logs, coached_positions = controller.apply(decision)
+
+    # Store coached positions for re-application after new_possession()
+    st.session_state.coached_positions = coached_positions
+
+    for log in logs:
+        st.session_state.possession.action_log.append(log)
+
+    st.success(f'Coach: "{decision.timeout_message}"')
+
 # ── Off-ball tendency session-state init (runs once; also safe on hot-reload) ────
 _POSITIONS = ["PG", "SG", "SF", "PF", "C"]
 if "tend_base_stay" not in st.session_state:
@@ -275,7 +317,7 @@ with row1_right:
     st.subheader("Possession")
 
     # Controls
-    col_step, col_new, col_play = st.columns(3)
+    col_step, col_new, col_play, col_timeout = st.columns(4)
     with col_step:
         step_clicked = st.button(
             "▶ Step",
@@ -293,6 +335,12 @@ with row1_right:
         if st.button(play_label, use_container_width=True):
             st.session_state.auto_play = not st.session_state.auto_play
             st.rerun()
+    with col_timeout:
+        timeout_clicked = st.button(
+            "📋 Timeout",
+            disabled=not st.session_state.possession_history or st.session_state.auto_play,
+            use_container_width=True,
+        )
 
     # ── Compact status strip ───────────────────────────────────────────────────
     if possession.is_over:
@@ -351,6 +399,17 @@ with row1_right:
     else:
         st.caption("No actions yet — press ▶ Step.")
 
+    # ── Coach's Tactical Analysis (CoT expander) ───────────────────────────────
+    if st.session_state.coaching_cot:
+        with st.expander("Coach's Tactical Analysis"):
+            cot_display = st.session_state.coaching_cot.split("## DATA_START")[0]
+            st.markdown(cot_display)
+
+# ── Timeout handler ────────────────────────────────────────────────────────────
+if timeout_clicked:
+    handle_timeout(blue_team, red_team)
+    st.rerun()
+
 # ── Step: animate then commit ──────────────────────────────────────────────────
 if step_clicked and not possession.is_over:
     new_state = step_possession(possession, blue_team, red_team)
@@ -381,13 +440,26 @@ if step_clicked and not possession.is_over:
     st.rerun()
 
 if new_clicked:
+    if st.session_state.possession.is_over:
+        rec = record_possession(st.session_state.possession)
+        st.session_state.possession_history.append(rec)
+        st.session_state.possession_history = st.session_state.possession_history[-10:]
     st.session_state.possession = new_possession(blue_team, red_team)
+    # Re-apply coached positions over the defaults set by new_possession()
+    for name, (x, y) in st.session_state.get("coached_positions", {}).items():
+        try:
+            blue_team.player_by_name(name).place(x, y)
+        except (ValueError, AttributeError):
+            pass
     st.rerun()
 
 # ── Auto-play loop
 if st.session_state.auto_play:
     if possession.is_over:
         time.sleep(0.4)  # brief pause so the result is readable before next possession
+        rec = record_possession(possession)
+        st.session_state.possession_history.append(rec)
+        st.session_state.possession_history = st.session_state.possession_history[-10:]
         st.session_state.possession = new_possession(blue_team, red_team)
         st.rerun()
     else:
