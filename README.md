@@ -150,6 +150,71 @@ Controls:
 
 ---
 
+## Example: A Timeout in Action
+
+After 30 possessions, the coaching agent receives the full game log, scouting report, and current tendencies. Here's what a real timeout looks like end-to-end.
+
+### Tactical Analysis (model reasoning)
+
+> **Layup Efficiency is High but Underutilized:** Players 3, 4, and 5 have strong layup finishing (0.88–0.94), yet layup tendencies are low. Player 1 and 3's drives are frequently successful (47–71% contest success), but they often reset or miss after getting through. → Increase layup tendencies for Player 1 and Player 3.
+>
+> **3PT Shooting is Over-Reliant on Player 1:** Player 1's 3PT attempts are frequent but contested. Player 2 also attempts 3s but with lower success. → Reduce Player 1's 3PT tendency and increase Player 2's to spread the load.
+>
+> **Off-Ball Movement Needs Refinement:** Cuts by Player 2 and 3 are often covered, while Player 4 and 5's screens are frequently ineffective. → Increase cut_factors for SF/SG; boost screen_factors for PF/C; adjust pop_probabilities for better roll/pop decisions.
+>
+> **Positioning Gaps:** Player 3 is often in MID_RANGE but their DRV (0.74) and LAY (0.88) suggest they'd thrive closer to the rim. → Reposition Player 3 to WING_3_RIGHT, Player 4 to CORNER_3_LEFT to optimize spacing.
+
+### Structured Output (extracted JSON)
+
+```json
+{
+  "timeout_message": "...",
+  "adjustments": [
+    { "player_name": "Player 1", "tendency_three": 0.10, "tendency_drive": 0.30, "tendency_layup": 0.40 },
+    { "player_name": "Player 2", "tendency_three": 0.50, "tendency_drive": 0.10, "tendency_pass": 0.20 },
+    { "player_name": "Player 3", "tendency_drive": 0.25, "tendency_layup": 0.40 },
+    { "player_name": "Player 4", "tendency_layup": 0.50 },
+    { "player_name": "Player 5", "tendency_layup": 0.80 }
+  ],
+  "off_ball": {
+    "cut_factors":        { "SG": 0.50, "SF": 0.50 },
+    "screen_factors":     { "PF": 0.50, "C": 0.50 },
+    "pop_probabilities":  { "PF": 0.60, "C": 0.40 }
+  },
+  "positioning": [
+    { "player_name": "Player 3", "zone": "WING_3_RIGHT" },
+    { "player_name": "Player 4", "zone": "CORNER_3_LEFT" }
+  ]
+}
+```
+
+### Applied Deltas
+
+**On-ball tendency shifts** (after normalization):
+
+| Player   | 3PT    | MID    | DRV    | PAS    | LAY     |
+|----------|--------|--------|--------|--------|---------|
+| Player 1 | -0.075 | -0.010 | -0.059 | -0.014 | +0.158  |
+| Player 2 | +0.057 | -0.012 | -0.043 | +0.005 | -0.006  |
+| Player 3 | -0.027 | -0.012 | -0.083 | -0.008 | +0.129  |
+| Player 4 | -0.018 | -0.007 | -0.022 | -0.007 | +0.055  |
+| Player 5 | -0.005 | -0.005 | -0.009 | -0.009 | +0.027  |
+
+**Off-ball system changes:**
+
+| Parameter              | Before | After | Δ      |
+|------------------------|--------|-------|--------|
+| cut_factors / SG       | 0.400  | 0.500 | +0.100 |
+| cut_factors / SF       | 0.350  | 0.500 | +0.150 |
+| screen_factors / PF    | 0.350  | 0.500 | +0.150 |
+| screen_factors / C     | 0.400  | 0.500 | +0.100 |
+| pop_probabilities / PF | 0.450  | 0.600 | +0.150 |
+| pop_probabilities / C  | 0.300  | 0.400 | +0.100 |
+
+**Repositioning:** Player 3 → `WING_3_RIGHT` (40.0, 22.0) · Player 4 → `CORNER_3_LEFT` (3.0, 10.0)
+
+---
+
 ## Why This Matters
 
 This is effectively **RL-style optimization via strategic language reasoning** rather than gradient updates.
